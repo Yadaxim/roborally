@@ -22,3 +22,9 @@ frontend/.vite/
 .vscode/
 .idea/
 *.swp
+
+# Local dev / AI tooling
+.claude/
+CLAUDE.md
+research/
+plan/
