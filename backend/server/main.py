@@ -24,6 +24,7 @@ from server.schemas import (
     MsgJoined,
     MsgPhaseChange,
     MsgRegisterEvents,
+    MsgStateSync,
     RobotOut,
     parse_card,
 )
@@ -128,6 +129,16 @@ async def _programming_timer(room_id: str) -> None:
         asyncio.create_task(_run_activation(room_id))
 
 
+async def _send_state_sync(ws: WebSocket, room: "Room", player_id: str) -> None:
+    from game.engine import GamePhase
+    phase = room.engine.phase.value
+    robots = [_robot_out(r) for r in room.engine.robots.values()]
+    hand: list[CardOut] = []
+    if room.engine.phase == GamePhase.PROGRAMMING:
+        hand = [CardOut.from_card(c) for c in room.get_hand(player_id)]
+    await _send(ws, MsgStateSync(phase=phase, robots=robots, hand=hand))
+
+
 def _cancel_timer(room_id: str) -> None:
     task = _timers.pop(room_id, None)
     if task and not task.done():
@@ -173,6 +184,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             _connections[room_id] = {}
 
         room = _rooms[room_id]
+        is_reconnect = player_id in room.engine.robots
         try:
             room.join(player_id)
         except RoomError as e:
@@ -182,6 +194,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
         _connections[room_id][player_id] = ws
         await _send(ws, MsgJoined(player_id=player_id, room_id=room_id))
+        if is_reconnect:
+            await _send_state_sync(ws, room, player_id)
 
         # Main message loop
         async for raw in ws.iter_text():

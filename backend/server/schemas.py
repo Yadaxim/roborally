@@ -90,6 +90,13 @@ class MsgGameOver(BaseModel):
     winner: str | None
 
 
+class MsgStateSync(BaseModel):
+    type: Literal["state_sync"] = "state_sync"
+    phase: str
+    robots: list[RobotOut]
+    hand: list[CardOut]  # empty outside programming phase or if player has no hand
+
+
 class MsgError(BaseModel):
     type: Literal["error"] = "error"
     message: str

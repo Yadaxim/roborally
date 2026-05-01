@@ -127,6 +127,50 @@ class TestSubmitRegisters:
             assert msg["type"] == "error"
 
 
+class TestReconnection:
+    def test_rejoin_in_lobby_gets_joined_message(self, client):
+        with client.websocket_connect("/ws") as ws1:
+            ws_send(ws1, type="join", room_id="rejoin1", player_id="alice")
+            ws_recv(ws1)  # joined
+            # Alice disconnects and reconnects
+        with client.websocket_connect("/ws") as ws2:
+            ws_send(ws2, type="join", room_id="rejoin1", player_id="alice")
+            msg = ws_recv(ws2)
+            assert msg["type"] == "joined"
+
+    def test_rejoin_during_programming_receives_state_sync(self, client):
+        # Start a game, then reconnect and expect a state_sync message
+        with client.websocket_connect("/ws") as ws1:
+            ws_send(ws1, type="join", room_id="rejoin2", player_id="alice")
+            ws_recv(ws1)  # joined
+            ws_send(ws1, type="start")
+            ws_recv(ws1)  # game_started
+            ws_recv(ws1)  # phase_change programming
+            ws_recv(ws1)  # deal_hand
+        # Alice disconnects; reconnect
+        with client.websocket_connect("/ws") as ws2:
+            ws_send(ws2, type="join", room_id="rejoin2", player_id="alice")
+            ws_recv(ws2)  # joined
+            sync = ws_recv(ws2)
+            assert sync["type"] == "state_sync"
+            assert sync["phase"] == "programming"
+            assert "robots" in sync
+            assert "hand" in sync
+
+    def test_rejoin_does_not_count_as_new_player(self, client):
+        # Room with 1 player at max; same player rejoins — room stays at 1
+        with client.websocket_connect("/ws") as ws1:
+            ws_send(ws1, type="join", room_id="rejoin3", player_id="alice")
+            ws_recv(ws1)
+        # Reconnect
+        with client.websocket_connect("/ws") as ws2:
+            ws_send(ws2, type="join", room_id="rejoin3", player_id="alice")
+            msg = ws_recv(ws2)
+            assert msg["type"] == "joined"
+            # Verify the room still has only 1 robot (alice's)
+            assert len(server_main._rooms["rejoin3"].engine.robots) == 1
+
+
 class TestProgrammingTimer:
     def test_timer_auto_submits_and_starts_activation(self, client, monkeypatch):
         monkeypatch.setattr(server_main, "PROGRAMMING_TIMEOUT", 0.05)
