@@ -24,6 +24,7 @@ export interface Robot {
   lives: number
   checkpoints_touched: number
   is_alive: boolean
+  locked_registers: number[]
 }
 
 export interface ActivationEvent {
@@ -42,9 +43,9 @@ export interface ActivationEvent {
 export type ServerMessage =
   | { type: 'joined'; player_id: string; room_id: string }
   | { type: 'game_started'; robots: Robot[] }
-  | { type: 'deal_hand'; hand: Card[] }
+  | { type: 'deal_hand'; hand: Card[]; locked_cards: Record<number, Card> }
   | { type: 'phase_change'; phase: Phase }
-  | { type: 'state_sync'; phase: Phase; robots: Robot[]; hand: Card[] }
+  | { type: 'state_sync'; phase: Phase; robots: Robot[]; hand: Card[]; locked_cards: Record<number, Card> }
   | { type: 'register_events'; register_num: number; events: ActivationEvent[]; robots: Robot[] }
   | { type: 'game_over'; winner: string | null }
   | { type: 'error'; message: string }

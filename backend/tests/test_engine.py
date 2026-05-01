@@ -158,6 +158,69 @@ class TestActivationPhase:
         assert len(hand2) == 9
 
 
+class TestLockedRegisters:
+    def setup_method(self):
+        self.board = Board.empty(12, 12)
+        self.board.start_positions = [(5, 5)]
+        self.engine = GameEngine(self.board)
+        self.engine.add_player("p1")
+        self.engine.start_game()
+
+    def _safe_cards(self, offset: int = 0) -> list[Card]:
+        return [Card(type=CardType.TURN_RIGHT, priority=100 + offset + i) for i in range(5)]
+
+    def _run_round(self, cards_5: list[Card]) -> None:
+        self.engine.hands["p1"] = cards_5 + list(self.engine.hands["p1"])[:4]
+        self.engine.submit_registers("p1", cards_5)
+        for _ in range(5):
+            if self.engine.phase == GamePhase.ACTIVATION:
+                self.engine.execute_next_register()
+
+    def test_no_locked_cards_initially(self):
+        assert self.engine.locked_cards.get("p1", {}) == {}
+
+    def test_no_locked_cards_after_round_with_no_damage(self):
+        self._run_round(self._safe_cards())
+        assert self.engine.locked_cards.get("p1", {}) == {}
+
+    def test_locked_cards_saved_after_round_with_damage(self):
+        self.engine.robots["p1"].damage = 5  # damage 5 → register 5 locked
+        cards = self._safe_cards()
+        self._run_round(cards)
+        locked = self.engine.locked_cards["p1"]
+        assert 5 in locked
+        assert locked[5] == cards[4]
+
+    def test_two_locked_registers_with_damage_6(self):
+        self.engine.robots["p1"].damage = 6  # damage 6 → registers 4 and 5 locked
+        cards = self._safe_cards()
+        self._run_round(cards)
+        locked = self.engine.locked_cards["p1"]
+        assert 4 in locked and 5 in locked
+        assert locked[4] == cards[3]
+        assert locked[5] == cards[4]
+
+    def test_submit_with_correct_locked_card_accepted(self):
+        self.engine.robots["p1"].damage = 5
+        cards = self._safe_cards()
+        self._run_round(cards)
+        locked_card = self.engine.locked_cards["p1"][5]
+        free_cards = [Card(type=CardType.TURN_LEFT, priority=200 + i) for i in range(4)]
+        self.engine.hands["p1"] = free_cards
+        self.engine.submit_registers("p1", free_cards + [locked_card])
+        assert self.engine.registers["p1"] == free_cards + [locked_card]
+
+    def test_submit_wrong_card_in_locked_register_raises(self):
+        self.engine.robots["p1"].damage = 5
+        cards = self._safe_cards()
+        self._run_round(cards)
+        free_cards = [Card(type=CardType.TURN_LEFT, priority=200 + i) for i in range(4)]
+        wrong_card = Card(type=CardType.MOVE_1, priority=9999)
+        self.engine.hands["p1"] = free_cards
+        with pytest.raises(ValueError, match="locked"):
+            self.engine.submit_registers("p1", free_cards + [wrong_card])
+
+
 class TestWinCondition:
     def test_touching_all_checkpoints_triggers_game_over(self):
         board = make_board_with_checkpoints(2)

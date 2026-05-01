@@ -23,6 +23,7 @@ class GameEngine:
     robots: dict[str, Robot] = field(default_factory=dict)
     hands: dict[str, list[Card]] = field(default_factory=dict)
     registers: dict[str, list[Card] | None] = field(default_factory=dict)
+    locked_cards: dict[str, dict[int, Card]] = field(default_factory=dict)  # pid → {reg_num_1based → Card}
     current_register: int = 1
     winner: str | None = None
     _deck: list[Card] = field(default_factory=build_deck)
@@ -40,6 +41,7 @@ class GameEngine:
         self.robots[player_id] = Robot(id=player_id, x=x, y=y, facing=Direction.NORTH)
         self.hands[player_id] = []
         self.registers[player_id] = None
+        self.locked_cards[player_id] = {}
 
     def start_game(self) -> None:
         if not self.robots:
@@ -60,12 +62,20 @@ class GameEngine:
             raise RuntimeError("Not in programming phase")
         if len(cards) != 5:
             raise ValueError("Must submit exactly 5 cards")
-        hand = self.hands[player_id]
-        hand_remaining = list(hand)
-        for card in cards:
-            if card not in hand_remaining:
-                raise ValueError(f"Card {card} not in hand")
-            hand_remaining.remove(card)
+        robot = self.robots[player_id]
+        locked_regs = robot.locked_registers
+        locked = self.locked_cards.get(player_id, {})
+        hand_remaining = list(self.hands[player_id])
+        for i, card in enumerate(cards):
+            reg_num = i + 1  # 1-based register number
+            if reg_num in locked_regs:
+                expected = locked.get(reg_num)
+                if expected is not None and card != expected:
+                    raise ValueError(f"Register {reg_num} is locked — must use the retained card")
+            else:
+                if card not in hand_remaining:
+                    raise ValueError(f"Card {card} not in hand")
+                hand_remaining.remove(card)
         self.registers[player_id] = list(cards)
         if all(v is not None for v in self.registers.values()):
             self.phase = GamePhase.ACTIVATION
@@ -86,6 +96,15 @@ class GameEngine:
             return events
         self.current_register += 1
         if self.current_register > 5:
+            for pid, robot in self.robots.items():
+                locked_regs = robot.locked_registers
+                regs = self.registers.get(pid)
+                if locked_regs and regs is not None:
+                    self.locked_cards[pid] = {
+                        reg: regs[reg - 1] for reg in locked_regs if len(regs) >= reg
+                    }
+                else:
+                    self.locked_cards[pid] = {}
             for robot in self.robots.values():
                 if not robot._alive:
                     robot.respawn()

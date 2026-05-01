@@ -44,14 +44,13 @@ function dispatch(msg: ServerMessage): void {
       store.setRobots(msg.robots)
       break
     case 'deal_hand':
-      store.setHand(msg.hand)
-      store.clearRegisters()
+      store.setDeal(msg.hand, msg.locked_cards)
       break
     case 'phase_change':
       store.setPhase(msg.phase)
       break
     case 'state_sync':
-      store.applyStateSync(msg.phase, msg.robots, msg.hand)
+      store.applyStateSync(msg.phase, msg.robots, msg.hand, msg.locked_cards)
       break
     case 'register_events':
       store.setRobots(msg.robots)

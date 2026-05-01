@@ -29,6 +29,7 @@ class RobotOut(BaseModel):
     lives: int
     checkpoints_touched: int
     is_alive: bool
+    locked_registers: list[int] = []
 
 
 class EventOut(BaseModel):
@@ -71,6 +72,7 @@ class MsgGameStarted(BaseModel):
 class MsgDealHand(BaseModel):
     type: Literal["deal_hand"] = "deal_hand"
     hand: list[CardOut]
+    locked_cards: dict[int, CardOut] = {}
 
 
 class MsgPhaseChange(BaseModel):
@@ -95,6 +97,7 @@ class MsgStateSync(BaseModel):
     phase: str
     robots: list[RobotOut]
     hand: list[CardOut]  # empty outside programming phase or if player has no hand
+    locked_cards: dict[int, CardOut] = {}
 
 
 class MsgError(BaseModel):

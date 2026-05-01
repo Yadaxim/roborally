@@ -51,13 +51,61 @@ describe('clearRegisters', () => {
 
 describe('applyStateSync', () => {
   it('updates phase, robots, and hand together', () => {
-    const robots = [{ id: 'alice', x: 1, y: 2, facing: 'north' as const, damage: 0, lives: 3, checkpoints_touched: 0, is_alive: true }]
+    const robots = [{ id: 'alice', x: 1, y: 2, facing: 'north' as const, damage: 0, lives: 3, checkpoints_touched: 0, is_alive: true, locked_registers: [] }]
     const hand = [{ type: 'move_1' as const, priority: 500 }]
-    useGameStore.getState().applyStateSync('programming', robots, hand)
+    useGameStore.getState().applyStateSync('programming', robots, hand, {})
     const s = useGameStore.getState()
     expect(s.phase).toBe('programming')
     expect(s.robots).toEqual(robots)
     expect(s.hand).toEqual(hand)
+  })
+})
+
+describe('setDeal', () => {
+  it('sets hand and clears unlocked register slots', () => {
+    const card = { type: 'move_1' as const, priority: 100 }
+    useGameStore.getState().setRegister(0, card)
+    useGameStore.getState().setDeal([card], {})
+    const s = useGameStore.getState()
+    expect(s.hand).toEqual([card])
+    expect(s.registers).toEqual([null, null, null, null, null])
+  })
+
+  it('pre-populates locked register slots with retained cards', () => {
+    const locked = { type: 'turn_right' as const, priority: 200 }
+    useGameStore.getState().setDeal([], { 5: locked })
+    const s = useGameStore.getState()
+    expect(s.registers[4]).toEqual(locked)   // slot 4 = register 5
+    expect(s.lockedCards).toEqual({ 5: locked })
+  })
+
+  it('leaves non-locked slots null', () => {
+    const locked = { type: 'turn_right' as const, priority: 200 }
+    useGameStore.getState().setDeal([], { 5: locked })
+    const regs = useGameStore.getState().registers
+    expect(regs[0]).toBeNull()
+    expect(regs[3]).toBeNull()
+  })
+})
+
+describe('setRegister with locked slots', () => {
+  it('ignores writes to locked slots', () => {
+    const lockedCard = { type: 'turn_right' as const, priority: 200 }
+    useGameStore.getState().setDeal([], { 3: lockedCard })
+    const newCard = { type: 'move_1' as const, priority: 100 }
+    useGameStore.getState().setRegister(2, newCard)  // slot 2 = register 3 (locked)
+    expect(useGameStore.getState().registers[2]).toEqual(lockedCard)
+  })
+})
+
+describe('clearRegisters with locked slots', () => {
+  it('retains locked cards when clearing', () => {
+    const lockedCard = { type: 'turn_right' as const, priority: 200 }
+    useGameStore.getState().setDeal([], { 5: lockedCard })
+    useGameStore.getState().clearRegisters()
+    const regs = useGameStore.getState().registers
+    expect(regs[4]).toEqual(lockedCard)
+    expect(regs[0]).toBeNull()
   })
 })
 

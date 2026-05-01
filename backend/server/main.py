@@ -68,6 +68,7 @@ def _robot_out(r: Robot) -> RobotOut:
         damage=r.damage, lives=r.lives,
         checkpoints_touched=r.checkpoints_touched,
         is_alive=r.is_alive,
+        locked_registers=sorted(r.locked_registers),
     )
 
 
@@ -134,9 +135,12 @@ async def _send_state_sync(ws: WebSocket, room: "Room", player_id: str) -> None:
     phase = room.engine.phase.value
     robots = [_robot_out(r) for r in room.engine.robots.values()]
     hand: list[CardOut] = []
+    locked_out: dict[int, CardOut] = {}
     if room.engine.phase == GamePhase.PROGRAMMING:
         hand = [CardOut.from_card(c) for c in room.get_hand(player_id)]
-    await _send(ws, MsgStateSync(phase=phase, robots=robots, hand=hand))
+        raw_locked = room.engine.locked_cards.get(player_id, {})
+        locked_out = {reg: CardOut.from_card(c) for reg, c in raw_locked.items()}
+    await _send(ws, MsgStateSync(phase=phase, robots=robots, hand=hand, locked_cards=locked_out))
 
 
 def _cancel_timer(room_id: str) -> None:
@@ -151,8 +155,10 @@ async def _deal_hands(room_id: str) -> None:
     conns = _connections.get(room_id, {})
     for pid, ws in list(conns.items()):
         hand = room.get_hand(pid)
+        locked = room.engine.locked_cards.get(pid, {})
+        locked_out = {reg: CardOut.from_card(c) for reg, c in locked.items()}
         try:
-            await _send(ws, MsgDealHand(hand=[CardOut.from_card(c) for c in hand]))
+            await _send(ws, MsgDealHand(hand=[CardOut.from_card(c) for c in hand], locked_cards=locked_out))
         except Exception:
             pass
     _cancel_timer(room_id)

@@ -30,7 +30,8 @@ function DraggableCard({ card, isUsed }: { card: Card; isUsed: boolean }) {
   function handleClick() {
     if (isUsed || isDragging) return
     const store = useGameStore.getState()
-    const slot = store.registers.findIndex(r => r === null)
+    const locked = store.lockedCards
+    const slot = store.registers.findIndex((r, i) => r === null && !((i + 1) in locked))
     if (slot !== -1) store.setRegister(slot, card)
   }
 
@@ -46,11 +47,21 @@ function DraggableCard({ card, isUsed }: { card: Card; isUsed: boolean }) {
   )
 }
 
-function DroppableSlot({ index, card }: { index: number; card: Card | null }) {
+function DroppableSlot({ index, card, isLocked }: { index: number; card: Card | null; isLocked: boolean }) {
   const { setNodeRef, isOver } = useDroppable({ id: `register-${index}` })
 
   function handleRemove() {
+    if (isLocked) return
     useGameStore.getState().setRegister(index, null)
+  }
+
+  if (isLocked) {
+    return (
+      <div className="relative w-14 h-20 rounded border-2 border-amber-600 flex items-center justify-center bg-amber-950/30">
+        {card && <CardComponent card={card} dimmed />}
+        <span className="absolute top-0.5 right-0.5 text-amber-400 text-xs leading-none select-none">🔒</span>
+      </div>
+    )
   }
 
   return (
@@ -72,10 +83,12 @@ function DroppableSlot({ index, card }: { index: number; card: Card | null }) {
 export default function ProgrammingPanel() {
   const hand = useGameStore(s => s.hand)
   const registers = useGameStore(s => s.registers)
+  const lockedCards = useGameStore(s => s.lockedCards)
   const dealTime = useGameStore(s => s.dealTime)
   const remaining = useCountdown(dealTime)
   const [activeCard, setActiveCard] = useState<Card | null>(null)
 
+  const lockedSlotIndices = new Set(Object.keys(lockedCards).map(n => Number(n) - 1))
   const usedPriorities = new Set(registers.filter(Boolean).map(c => c!.priority))
   const filled = registers.filter(Boolean).length
 
@@ -91,6 +104,7 @@ export default function ProgrammingPanel() {
     const overId = over.id.toString()
     if (!overId.startsWith('register-')) return
     const slotIndex = parseInt(overId.split('-')[1])
+    if (lockedSlotIndices.has(slotIndex)) return
     const data = active.data.current
     if (data) useGameStore.getState().setRegister(slotIndex, data['card'] as Card)
   }
@@ -106,7 +120,7 @@ export default function ProgrammingPanel() {
         {/* Registers row */}
         <div className="flex gap-2 items-end">
           {registers.map((c, i) => (
-            <DroppableSlot key={i} index={i} card={c} />
+            <DroppableSlot key={i} index={i} card={c} isLocked={lockedSlotIndices.has(i)} />
           ))}
           <div className="ml-auto flex flex-col items-end gap-1.5">
             <div className="flex items-center gap-2">
