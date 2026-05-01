@@ -86,6 +86,9 @@ class GameEngine:
             return events
         self.current_register += 1
         if self.current_register > 5:
+            for robot in self.robots.values():
+                if not robot._alive:
+                    robot.respawn()
             self.phase = GamePhase.PROGRAMMING
             self.current_register = 1
             for pid in self.registers:
@@ -100,6 +103,6 @@ class GameEngine:
                 self.winner = pid
                 self.phase = GamePhase.GAME_OVER
                 return
-        alive = [r for r in self.robots.values() if r.is_alive]
-        if not alive:
+        # Only end from elimination when every robot is permanently out of lives
+        if self.robots and all(r.lives <= 0 for r in self.robots.values()):
             self.phase = GamePhase.GAME_OVER

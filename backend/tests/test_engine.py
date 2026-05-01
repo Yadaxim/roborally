@@ -133,9 +133,14 @@ class TestActivationPhase:
         assert isinstance(events, list)
         assert self.engine.current_register == 2
 
+    def _safe_registers(self) -> list[Card]:
+        """Five rotation cards — robot won't move, so it can't fall off the board."""
+        cards = [Card(type=CardType.TURN_RIGHT, priority=100 + i) for i in range(5)]
+        self.engine.hands["p1"] = cards + list(self.engine.hands["p1"])[:4]
+        return cards
+
     def test_execute_all_registers_returns_to_programming(self):
-        hand = self.engine.hands["p1"]
-        self.engine.submit_registers("p1", hand[:5])
+        self.engine.submit_registers("p1", self._safe_registers())
         for _ in range(5):
             self.engine.execute_next_register()
         assert self.engine.phase == GamePhase.PROGRAMMING
@@ -145,8 +150,7 @@ class TestActivationPhase:
             self.engine.execute_next_register()
 
     def test_new_round_deals_fresh_hands(self):
-        hand1 = self.engine.hands["p1"]
-        self.engine.submit_registers("p1", hand1[:5])
+        self.engine.submit_registers("p1", self._safe_registers())
         for _ in range(5):
             self.engine.execute_next_register()
         hand2 = self.engine.hands["p1"]
