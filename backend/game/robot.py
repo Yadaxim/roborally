@@ -24,6 +24,7 @@ class Robot:
     facing: Direction
     damage: int = 0
     lives: int = STARTING_LIVES
+    checkpoints_touched: int = 0
     archive: tuple[int, int] = field(init=False)
     _alive: bool = field(default=True, init=False)
 

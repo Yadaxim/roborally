@@ -22,6 +22,7 @@ class TileType(Enum):
     LASER_EMITTER = "laser_emitter"
     CHECKPOINT = "checkpoint"
     PUSHER = "pusher"
+    CRUSHER = "crusher"
 
 
 _TURN_LEFT: dict[Direction, Direction] = {
