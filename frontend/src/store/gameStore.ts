@@ -14,6 +14,7 @@ interface GameState {
   registers: (Card | null)[]
   lastEvents: ActivationEvent[]
   winner: string | null
+  dealTime: number | null
 
   // Actions
   setConnected: (v: boolean) => void
@@ -31,7 +32,7 @@ interface GameState {
 
 const INITIAL: Pick<
   GameState,
-  'connected' | 'playerId' | 'roomId' | 'phase' | 'robots' | 'hand' | 'registers' | 'lastEvents' | 'winner'
+  'connected' | 'playerId' | 'roomId' | 'phase' | 'robots' | 'hand' | 'registers' | 'lastEvents' | 'winner' | 'dealTime'
 > = {
   connected: false,
   playerId: null,
@@ -42,6 +43,7 @@ const INITIAL: Pick<
   registers: [null, null, null, null, null],
   lastEvents: [],
   winner: null,
+  dealTime: null,
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -51,7 +53,7 @@ export const useGameStore = create<GameState>((set) => ({
   setJoined: (playerId, roomId) => set({ playerId, roomId }),
   setPhase: (phase) => set({ phase }),
   setRobots: (robots) => set({ robots }),
-  setHand: (hand) => set({ hand }),
+  setHand: (hand) => set({ hand, dealTime: Date.now() }),
   setRegister: (slot, card) =>
     set((s) => {
       const registers = [...s.registers]

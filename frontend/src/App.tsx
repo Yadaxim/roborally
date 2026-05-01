@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { useGameStore } from './store/gameStore'
 import { connect, send } from './ws/client'
 import Scene from './components/game/Scene'
+import ProgrammingPanel from './components/ui/ProgrammingPanel'
 import './index.css'
 
 export default function App() {
-  const { phase, connected, playerId, roomId, hand, registers, winner } = useGameStore()
+  const { phase, connected, playerId, roomId, winner } = useGameStore()
   const [roomInput, setRoomInput] = useState('')
   const [playerInput, setPlayerInput] = useState('')
 
@@ -16,11 +17,6 @@ export default function App() {
 
   function handleStart() {
     send({ type: 'start' })
-  }
-
-  function handleSubmit() {
-    const cards = registers.filter(Boolean) as NonNullable<(typeof registers)[number]>[]
-    if (cards.length === 5) send({ type: 'submit_registers', cards })
   }
 
   if (phase === 'game_over') {
@@ -81,50 +77,7 @@ export default function App() {
         <Scene />
       </div>
 
-      {phase === 'programming' && (
-        <div className="bg-gray-800 border-t border-gray-700 p-3 flex flex-col gap-2">
-          <div className="flex gap-2 items-end">
-            {registers.map((c, i) => (
-              <div
-                key={i}
-                className="w-16 h-20 border-2 border-dashed border-gray-500 rounded flex items-center justify-center text-xs text-center text-gray-400 cursor-pointer hover:border-red-400"
-                onClick={() => useGameStore.getState().setRegister(i, null)}
-              >
-                {c ? (
-                  <span className="font-mono text-white">
-                    {c.type}
-                    <br />
-                    {c.priority}
-                  </span>
-                ) : (
-                  `Reg ${i + 1}`
-                )}
-              </div>
-            ))}
-            <button
-              className="ml-auto bg-green-700 hover:bg-green-600 text-white rounded px-4 py-2 font-semibold disabled:opacity-40"
-              disabled={registers.filter(Boolean).length !== 5}
-              onClick={handleSubmit}
-            >
-              Confirm
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {hand.map((c, i) => (
-              <button
-                key={i}
-                className="bg-gray-700 hover:bg-gray-600 rounded px-3 py-2 text-sm font-mono"
-                onClick={() => {
-                  const slot = registers.findIndex((r) => r === null)
-                  if (slot !== -1) useGameStore.getState().setRegister(slot, c)
-                }}
-              >
-                {c.type} / {c.priority}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {phase === 'programming' && <ProgrammingPanel />}
     </div>
   )
 }
