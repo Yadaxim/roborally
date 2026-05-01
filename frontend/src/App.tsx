@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useGameStore } from './store/gameStore'
 import { connect, send } from './ws/client'
+import Scene from './components/game/Scene'
 import './index.css'
 
 export default function App() {
-  const { phase, connected, playerId, roomId, hand, registers, robots, winner } = useGameStore()
+  const { phase, connected, playerId, roomId, hand, registers, winner } = useGameStore()
   const [roomInput, setRoomInput] = useState('')
   const [playerInput, setPlayerInput] = useState('')
 
@@ -76,17 +77,8 @@ export default function App() {
         </span>
       </header>
 
-      <div className="flex-1 flex items-center justify-center text-gray-500 text-lg">
-        <div className="text-center">
-          <p>[3D board coming soon]</p>
-          <div className="mt-4 text-sm text-gray-400 space-y-1">
-            {robots.map((r) => (
-              <div key={r.id}>
-                {r.id}: ({r.x},{r.y}) {r.facing} dmg={r.damage} lives={r.lives}
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="flex-1 relative">
+        <Scene />
       </div>
 
       {phase === 'programming' && (
