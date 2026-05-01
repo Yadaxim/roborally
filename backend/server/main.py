@@ -43,6 +43,9 @@ _rooms: dict[str, Room] = {}
 # room_id → {player_id → WebSocket}
 _connections: dict[str, dict[str, WebSocket]] = {}
 
+# room_id → running timer task
+_timers: dict[str, asyncio.Task] = {}
+
 PROGRAMMING_TIMEOUT = 30  # seconds
 
 
@@ -106,6 +109,31 @@ async def _run_activation(room_id: str) -> None:
     await _deal_hands(room_id)
 
 
+async def _programming_timer(room_id: str) -> None:
+    """Auto-submit registers for players who haven't programmed when time runs out."""
+    await asyncio.sleep(PROGRAMMING_TIMEOUT)
+    room = _rooms.get(room_id)
+    if room is None or room.engine.phase != GamePhase.PROGRAMMING:
+        return
+    for pid, submitted in list(room.engine.registers.items()):
+        if submitted is None:
+            hand = room.get_hand(pid)
+            if len(hand) >= 5:
+                try:
+                    room.submit_registers(pid, hand[:5])
+                except RoomError:
+                    pass
+    if room.engine.phase == GamePhase.ACTIVATION:
+        await _broadcast(room_id, MsgPhaseChange(phase="activation"))
+        asyncio.create_task(_run_activation(room_id))
+
+
+def _cancel_timer(room_id: str) -> None:
+    task = _timers.pop(room_id, None)
+    if task and not task.done():
+        task.cancel()
+
+
 async def _deal_hands(room_id: str) -> None:
     room = _rooms[room_id]
     await _broadcast(room_id, MsgPhaseChange(phase="programming"))
@@ -116,6 +144,8 @@ async def _deal_hands(room_id: str) -> None:
             await _send(ws, MsgDealHand(hand=[CardOut.from_card(c) for c in hand]))
         except Exception:
             pass
+    _cancel_timer(room_id)
+    _timers[room_id] = asyncio.create_task(_programming_timer(room_id))
 
 
 @app.get("/health")
@@ -177,6 +207,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     continue
 
                 if room.engine.phase == GamePhase.ACTIVATION:
+                    _cancel_timer(room_id)
                     await _broadcast(room_id, MsgPhaseChange(phase="activation"))
                     asyncio.create_task(_run_activation(room_id))
 

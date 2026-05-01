@@ -1,7 +1,9 @@
 import json
+import time
 import pytest
 from fastapi.testclient import TestClient
 
+import server.main as server_main
 from server.main import app
 
 
@@ -123,3 +125,45 @@ class TestSubmitRegisters:
             ws_send(ws, type="submit_registers", cards=hand[:3])
             msg = ws_recv(ws)
             assert msg["type"] == "error"
+
+
+class TestProgrammingTimer:
+    def test_timer_auto_submits_and_starts_activation(self, client, monkeypatch):
+        monkeypatch.setattr(server_main, "PROGRAMMING_TIMEOUT", 0.05)
+        with client.websocket_connect("/ws") as ws:
+            ws_send(ws, type="join", room_id="timer1", player_id="p1")
+            ws_recv(ws)  # joined
+            ws_send(ws, type="start")
+            ws_recv(ws)  # game_started
+            ws_recv(ws)  # phase_change programming
+            ws_recv(ws)  # deal_hand
+            # Don't submit — let the timer fire
+            time.sleep(0.3)
+            msg = ws_recv(ws)
+            assert msg["type"] == "phase_change"
+            assert msg["phase"] == "activation"
+
+    def test_timer_cancelled_when_all_submit_early(self, client, monkeypatch):
+        monkeypatch.setattr(server_main, "PROGRAMMING_TIMEOUT", 0.3)
+        with client.websocket_connect("/ws") as ws:
+            ws_send(ws, type="join", room_id="timer2", player_id="p1")
+            ws_recv(ws)  # joined
+            ws_send(ws, type="start")
+            ws_recv(ws)  # game_started
+            ws_recv(ws)  # phase_change programming
+            hand_msg = ws_recv(ws)  # deal_hand
+            # Submit before timer expires
+            ws_send(ws, type="submit_registers", cards=hand_msg["hand"][:5])
+            msg = ws_recv(ws)  # phase_change activation
+            assert msg["type"] == "phase_change"
+            assert msg["phase"] == "activation"
+            # Drain all 5 register_events
+            for _ in range(5):
+                ws_recv(ws)
+            # Next round: get phase_change programming + deal_hand
+            ws_recv(ws)  # phase_change programming
+            ws_recv(ws)  # deal_hand
+            # Wait past the original timer window — activation should NOT fire again
+            time.sleep(0.4)
+            # No more messages should arrive from the old timer
+            ws.close()
