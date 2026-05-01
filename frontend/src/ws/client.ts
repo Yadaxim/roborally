@@ -47,6 +47,9 @@ function dispatch(msg: ServerMessage): void {
       store.setDeal(msg.hand, msg.locked_cards)
       break
     case 'phase_change':
+      if (msg.phase === 'programming' && store.phase === 'activation') {
+        store.setShowRoundResult(true)
+      }
       store.setPhase(msg.phase)
       break
     case 'state_sync':
@@ -55,6 +58,7 @@ function dispatch(msg: ServerMessage): void {
     case 'register_events':
       store.setRobots(msg.robots)
       store.setLastEvents(msg.events)
+      store.appendRoundEvents(msg.events)
       break
     case 'game_over':
       store.setPhase('game_over')

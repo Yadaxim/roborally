@@ -4,6 +4,7 @@ import { connect, send, disconnect } from './ws/client'
 import Scene from './components/game/Scene'
 import ProgrammingPanel from './components/ui/ProgrammingPanel'
 import PlayerPanel from './components/ui/PlayerPanel'
+import RoundResultOverlay from './components/ui/RoundResultOverlay'
 import './index.css'
 
 const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#e9c46a', '#f4a261']
@@ -130,6 +131,7 @@ export default function App() {
       </div>
 
       {phase === 'programming' && <ProgrammingPanel />}
+      <RoundResultOverlay />
     </div>
   )
 }

@@ -116,6 +116,42 @@ describe('setWinner', () => {
   })
 })
 
+describe('appendRoundEvents', () => {
+  it('accumulates events across multiple calls', () => {
+    const e1 = { type: 'damage' as const, robot_id: 'alice', amount: 1 }
+    const e2 = { type: 'checkpoint' as const, robot_id: 'bob', checkpoint_num: 1 }
+    useGameStore.getState().appendRoundEvents([e1])
+    useGameStore.getState().appendRoundEvents([e2])
+    expect(useGameStore.getState().roundEvents).toEqual([e1, e2])
+  })
+
+  it('is cleared by setDeal', () => {
+    const e = { type: 'damage' as const, robot_id: 'alice', amount: 1 }
+    useGameStore.getState().appendRoundEvents([e])
+    useGameStore.getState().setDeal([], {})
+    expect(useGameStore.getState().roundEvents).toEqual([])
+  })
+})
+
+describe('showRoundResult', () => {
+  it('starts false', () => {
+    expect(useGameStore.getState().showRoundResult).toBe(false)
+  })
+
+  it('can be toggled', () => {
+    useGameStore.getState().setShowRoundResult(true)
+    expect(useGameStore.getState().showRoundResult).toBe(true)
+    useGameStore.getState().setShowRoundResult(false)
+    expect(useGameStore.getState().showRoundResult).toBe(false)
+  })
+
+  it('is cleared by setDeal', () => {
+    useGameStore.getState().setShowRoundResult(true)
+    useGameStore.getState().setDeal([], {})
+    expect(useGameStore.getState().showRoundResult).toBe(false)
+  })
+})
+
 describe('reset', () => {
   it('returns to initial state', () => {
     useGameStore.getState().setJoined('bob', 'room99')

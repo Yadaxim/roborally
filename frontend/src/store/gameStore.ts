@@ -14,6 +14,8 @@ interface GameState {
   registers: (Card | null)[]
   lockedCards: Record<number, Card>  // 1-based register number → retained card
   lastEvents: ActivationEvent[]
+  roundEvents: ActivationEvent[]    // accumulated across all registers this round
+  showRoundResult: boolean
   winner: string | null
   dealTime: number | null
 
@@ -27,6 +29,8 @@ interface GameState {
   setRegister: (slot: number, card: Card | null) => void
   clearRegisters: () => void
   setLastEvents: (events: ActivationEvent[]) => void
+  appendRoundEvents: (events: ActivationEvent[]) => void
+  setShowRoundResult: (show: boolean) => void
   setWinner: (winner: string | null) => void
   applyStateSync: (phase: Phase, robots: Robot[], hand: Card[], lockedCards: Record<number, Card>) => void
   reset: () => void
@@ -42,7 +46,8 @@ function buildRegistersFromLocked(lockedCards: Record<number, Card>): (Card | nu
 
 const INITIAL: Pick<
   GameState,
-  'connected' | 'playerId' | 'roomId' | 'phase' | 'robots' | 'hand' | 'registers' | 'lockedCards' | 'lastEvents' | 'winner' | 'dealTime'
+  'connected' | 'playerId' | 'roomId' | 'phase' | 'robots' | 'hand' | 'registers' | 'lockedCards' |
+  'lastEvents' | 'roundEvents' | 'showRoundResult' | 'winner' | 'dealTime'
 > = {
   connected: false,
   playerId: null,
@@ -53,6 +58,8 @@ const INITIAL: Pick<
   registers: [null, null, null, null, null],
   lockedCards: {},
   lastEvents: [],
+  roundEvents: [],
+  showRoundResult: false,
   winner: null,
   dealTime: null,
 }
@@ -70,6 +77,8 @@ export const useGameStore = create<GameState>((set) => ({
     lockedCards,
     registers: buildRegistersFromLocked(lockedCards),
     dealTime: Date.now(),
+    roundEvents: [],
+    showRoundResult: false,
   }),
   setRegister: (slot, card) =>
     set((s) => {
@@ -82,6 +91,9 @@ export const useGameStore = create<GameState>((set) => ({
   clearRegisters: () =>
     set((s) => ({ registers: buildRegistersFromLocked(s.lockedCards) })),
   setLastEvents: (lastEvents) => set({ lastEvents }),
+  appendRoundEvents: (events) =>
+    set((s) => ({ roundEvents: [...s.roundEvents, ...events] })),
+  setShowRoundResult: (showRoundResult) => set({ showRoundResult }),
   setWinner: (winner) => set({ winner }),
   applyStateSync: (phase, robots, hand, lockedCards) => set({ phase, robots, hand, lockedCards }),
   reset: () => set(INITIAL),
