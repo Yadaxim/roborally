@@ -1,4 +1,4 @@
-import { DndContext, DragOverlay, useDraggable, useDroppable } from '@dnd-kit/core'
+import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useEffect, useState } from 'react'
 import { useGameStore } from '../../store/gameStore'
@@ -87,6 +87,7 @@ export default function ProgrammingPanel() {
   const dealTime = useGameStore(s => s.dealTime)
   const remaining = useCountdown(dealTime)
   const [activeCard, setActiveCard] = useState<Card | null>(null)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   const lockedSlotIndices = new Set(Object.keys(lockedCards).map(n => Number(n) - 1))
   const usedPriorities = new Set(registers.filter(Boolean).map(c => c!.priority))
@@ -116,7 +117,7 @@ export default function ProgrammingPanel() {
 
   return (
     <div className="bg-gray-800 border-t border-gray-700 p-3 flex flex-col gap-2">
-      <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         {/* Registers row */}
         <div className="flex gap-2 items-end">
           {registers.map((c, i) => (
