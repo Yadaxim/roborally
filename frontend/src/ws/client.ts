@@ -3,14 +3,14 @@ import { useGameStore } from '../store/gameStore'
 
 let socket: WebSocket | null = null
 
-export function connect(roomId: string, playerId: string): void {
+export function connect(): void {
   const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
   socket = new WebSocket(url)
   const store = useGameStore.getState()
 
   socket.onopen = () => {
     store.setConnected(true)
-    send({ type: 'join', room_id: roomId, player_id: playerId })
+    // Server sends room_list automatically on connect
   }
 
   socket.onclose = () => {
@@ -37,8 +37,17 @@ export function send(msg: ClientMessage): void {
 function dispatch(msg: ServerMessage): void {
   const store = useGameStore.getState()
   switch (msg.type) {
+    case 'room_list':
+      store.setRooms(msg.rooms)
+      break
     case 'joined':
-      store.setJoined(msg.player_id, msg.room_id)
+      store.setJoined(msg.player_id, msg.room_id, msg.room_name, msg.is_host, msg.required_players)
+      break
+    case 'roster_update':
+      store.setLobbyPlayers(msg.players)
+      break
+    case 'player_ready':
+      store.updateLobbyPlayerReady(msg.player_id, msg.is_ready)
       break
     case 'game_started':
       store.setRobots(msg.robots)
@@ -56,9 +65,7 @@ function dispatch(msg: ServerMessage): void {
       store.applyStateSync(msg.phase, msg.robots, msg.hand, msg.locked_cards)
       break
     case 'register_events':
-      store.setRobots(msg.robots)
-      store.setLastEvents(msg.events)
-      store.appendRoundEvents(msg.events)
+      store.enqueueRegister(msg)
       break
     case 'game_over':
       store.setPhase('game_over')

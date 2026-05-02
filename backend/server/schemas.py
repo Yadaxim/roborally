@@ -58,10 +58,53 @@ class EventOut(BaseModel):
         )
 
 
+class PlayerInRoomOut(BaseModel):
+    player_id: str
+    is_host: bool
+    is_ready: bool
+
+
+class RoomSummary(BaseModel):
+    room_id: str
+    room_name: str
+    host_id: str
+    player_count: int
+    required_players: int
+    in_progress: bool
+
+
+class MsgRoomList(BaseModel):
+    type: Literal["room_list"] = "room_list"
+    rooms: list[RoomSummary]
+
+
+class MsgRoomCreated(BaseModel):
+    type: Literal["room_created"] = "room_created"
+    room_id: str
+    room_name: str
+    player_id: str
+    is_host: bool
+    required_players: int
+
+
+class MsgRosterUpdate(BaseModel):
+    type: Literal["roster_update"] = "roster_update"
+    players: list[PlayerInRoomOut]
+
+
+class MsgPlayerReady(BaseModel):
+    type: Literal["player_ready"] = "player_ready"
+    player_id: str
+    is_ready: bool
+
+
 class MsgJoined(BaseModel):
     type: Literal["joined"] = "joined"
     player_id: str
     room_id: str
+    room_name: str = ""
+    is_host: bool = False
+    required_players: int = 2
 
 
 class MsgGameStarted(BaseModel):
@@ -96,7 +139,7 @@ class MsgStateSync(BaseModel):
     type: Literal["state_sync"] = "state_sync"
     phase: str
     robots: list[RobotOut]
-    hand: list[CardOut]  # empty outside programming phase or if player has no hand
+    hand: list[CardOut]
     locked_cards: dict[int, CardOut] = {}
 
 
@@ -113,8 +156,30 @@ class CmdJoin(BaseModel):
     player_id: str
 
 
+class CmdCreateRoom(BaseModel):
+    type: Literal["create_room"]
+    player_name: str
+    room_name: str
+    required_players: int = 2
+
+
+class CmdJoinRoom(BaseModel):
+    type: Literal["join_room"]
+    player_name: str
+    room_id: str
+
+
+class CmdReady(BaseModel):
+    type: Literal["ready"]
+    value: bool
+
+
 class CmdStart(BaseModel):
     type: Literal["start"]
+
+
+class CmdForceStart(BaseModel):
+    type: Literal["force_start"]
 
 
 class CmdSubmitRegisters(BaseModel):

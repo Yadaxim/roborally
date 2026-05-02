@@ -87,6 +87,7 @@ export default function ProgrammingPanel() {
   const dealTime = useGameStore(s => s.dealTime)
   const remaining = useCountdown(dealTime)
   const [activeCard, setActiveCard] = useState<Card | null>(null)
+  const [submitted, setSubmitted] = useState(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   const lockedSlotIndices = new Set(Object.keys(lockedCards).map(n => Number(n) - 1))
@@ -112,7 +113,10 @@ export default function ProgrammingPanel() {
 
   function handleConfirm() {
     const cards = registers.filter(Boolean) as Card[]
-    if (cards.length === 5) send({ type: 'submit_registers', cards })
+    if (cards.length === 5) {
+      send({ type: 'submit_registers', cards })
+      setSubmitted(true)
+    }
   }
 
   return (
@@ -128,13 +132,16 @@ export default function ProgrammingPanel() {
               <span className={`text-sm font-mono tabular-nums ${remaining < 10 ? 'text-red-400' : 'text-gray-400'}`}>
                 {remaining}s
               </span>
-              <button
-                className="bg-green-700 hover:bg-green-600 text-white rounded px-4 py-2 font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
-                disabled={filled !== 5}
-                onClick={handleConfirm}
-              >
-                Confirm
-              </button>
+              {submitted
+                ? <span className="text-sm text-gray-400 italic">Waiting for others…</span>
+                : <button
+                    className="bg-green-700 hover:bg-green-600 text-white rounded px-4 py-2 font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                    disabled={filled !== 5}
+                    onClick={handleConfirm}
+                  >
+                    Confirm
+                  </button>
+              }
             </div>
             {/* Timer bar */}
             <div className="w-full h-1 bg-gray-600 rounded overflow-hidden">

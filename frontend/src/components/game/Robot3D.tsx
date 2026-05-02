@@ -23,7 +23,7 @@ export default function Robot3D({ robot, color }: Props) {
     px: robot.x,
     pz: robot.y,
     ry: FACING_ANGLE[robot.facing] ?? 0,
-    config: { mass: 1, tension: 170, friction: 26 },
+    config: { mass: 1, tension: 80, friction: 26 },
   })
 
   useFrame(() => {

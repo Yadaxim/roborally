@@ -39,9 +39,33 @@ export interface ActivationEvent {
   checkpoint_num?: number
 }
 
+export interface PendingRegister {
+  register_num: number
+  events: ActivationEvent[]
+  robots: Robot[]
+}
+
+export interface RoomSummary {
+  room_id: string
+  room_name: string
+  host_id: string
+  player_count: number
+  required_players: number
+  in_progress: boolean
+}
+
+export interface LobbyPlayer {
+  player_id: string
+  is_host: boolean
+  is_ready: boolean
+}
+
 // Server → Client messages
 export type ServerMessage =
-  | { type: 'joined'; player_id: string; room_id: string }
+  | { type: 'room_list'; rooms: RoomSummary[] }
+  | { type: 'joined'; player_id: string; room_id: string; room_name: string; is_host: boolean; required_players: number }
+  | { type: 'roster_update'; players: LobbyPlayer[] }
+  | { type: 'player_ready'; player_id: string; is_ready: boolean }
   | { type: 'game_started'; robots: Robot[] }
   | { type: 'deal_hand'; hand: Card[]; locked_cards: Record<number, Card> }
   | { type: 'phase_change'; phase: Phase }
@@ -53,5 +77,9 @@ export type ServerMessage =
 // Client → Server messages
 export type ClientMessage =
   | { type: 'join'; room_id: string; player_id: string }
+  | { type: 'create_room'; player_name: string; room_name: string; required_players: number }
+  | { type: 'join_room'; player_name: string; room_id: string }
+  | { type: 'ready'; value: boolean }
+  | { type: 'force_start' }
   | { type: 'start' }
   | { type: 'submit_registers'; cards: Card[] }
