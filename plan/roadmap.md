@@ -78,9 +78,13 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 - ✅ **Create room flow** — host picks a room name and required player count (2/3/4); room gets an auto-generated 4-letter ID
 - ✅ **Roster panel** — waiting room shows all players with host badge and ready status; `roster_update` broadcast on every join/leave
 - ✅ **Ready system** — per-player Ready toggle; game starts automatically when all players are ready; host has a Force Start button
-- ✅ **Minimum player enforcement** — `can_force_start` requires ≥ 2 players; `all_ready` requires the room's `required_players` count
+- ✅ **Minimum player enforcement** — `can_force_start` allows solo (≥ 1 player); `all_ready` requires the room's `required_players` count (1–4)
+- ✅ **Live room list for browsers** — connections still picking a room receive pushed `room_list` when any lobby room is created, joined, starts a match, or a player leaves (no reload)
 
-- ⬜ Pause button — host can pause/unpause the game; freezes the programming timer and delays activation until resumed
+- ✅ Pause button — host can pause/unpause the game; freezes the programming timer and delays activation until resumed
+
+- show next to the board the card and registry number that is been animated in that moment.
+
 
 - ⬜ Live camera angle slider (elevation + rotation) for isometric view tuning
 
@@ -116,3 +120,7 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 - ✅ Conveyor logic (17 tests: green/express movement, chaining, turning rotation, blocking)
 - ✅ Game state machine (21 tests: phases, hand dealing, register submission, win condition)
 - ✅ Lobby overhaul — room browser, create-room flow, roster panel, ready system, force start (24 new server tests)
+
+
+## BUGS
+

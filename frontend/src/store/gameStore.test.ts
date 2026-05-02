@@ -15,7 +15,7 @@ describe('initial state', () => {
 
 describe('setJoined', () => {
   it('stores player and room ids', () => {
-    useGameStore.getState().setJoined('alice', 'room1')
+    useGameStore.getState().setJoined('alice', 'room1', '', false, 2)
     const s = useGameStore.getState()
     expect(s.playerId).toBe('alice')
     expect(s.roomId).toBe('room1')
@@ -154,7 +154,7 @@ describe('showRoundResult', () => {
 
 describe('reset', () => {
   it('returns to initial state', () => {
-    useGameStore.getState().setJoined('bob', 'room99')
+    useGameStore.getState().setJoined('bob', 'room99', '', false, 2)
     useGameStore.getState().setPhase('activation')
     useGameStore.getState().reset()
     const s = useGameStore.getState()

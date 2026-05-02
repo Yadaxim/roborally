@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useGameStore } from './store/gameStore'
 import { connect, send, disconnect } from './ws/client'
+import type { ClientMessage } from './types/game'
 import { useAnimationSequencer } from './hooks/useAnimationSequencer'
 import Scene from './components/game/Scene'
 import ProgrammingPanel from './components/ui/ProgrammingPanel'
@@ -11,7 +12,7 @@ import './index.css'
 const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#e9c46a', '#f4a261']
 
 export default function App() {
-  const { phase, connected, playerId, roomId, roomName, isHost, requiredPlayers, rooms, lobbyPlayers, robots, winner } =
+  const { phase, connected, playerId, roomId, roomName, isHost, requiredPlayers, rooms, lobbyPlayers, robots, winner, gamePaused } =
     useGameStore()
   const [playerName, setPlayerName] = useState('')
   const [createRoomName, setCreateRoomName] = useState('')
@@ -43,6 +44,12 @@ export default function App() {
 
   function handleForceStart() {
     send({ type: 'force_start' })
+  }
+
+  function handleTogglePause() {
+    const next = !useGameStore.getState().gamePaused
+    const msg: ClientMessage = { type: 'set_paused', value: next }
+    send(msg)
   }
 
   function handlePlayAgain() {
@@ -165,7 +172,7 @@ export default function App() {
           />
           <div className="flex items-center gap-3">
             <span className="text-gray-400 text-sm">Players needed:</span>
-            {[2, 3, 4].map(n => (
+            {[1, 2, 3, 4].map(n => (
               <button
                 key={n}
                 className={`w-8 h-8 rounded font-semibold text-sm transition-colors ${
@@ -250,7 +257,6 @@ export default function App() {
           {isHost && (
             <button
               className="bg-yellow-700 hover:bg-yellow-600 text-white font-semibold rounded px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed"
-              disabled={lobbyPlayers.length < 2}
               onClick={handleForceStart}
               title="Start immediately with current players"
             >
@@ -265,12 +271,24 @@ export default function App() {
   // ── In-game ────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
-      <header className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+      <header className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0 gap-2">
         <span className="font-bold text-indigo-400">RoboRally</span>
-        <span className="text-sm text-gray-400 capitalize">
+        <span className="text-sm text-gray-400 capitalize text-center flex-1 min-w-0">
+          {gamePaused && <span className="text-amber-400 mr-2">Paused</span>}
           {phase === 'programming' ? 'Programming' : phase === 'activation' ? 'Activation' : phase}
         </span>
-        <span className="text-sm text-gray-500">{roomName || roomId}</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {isHost && (phase === 'programming' || phase === 'activation') && (
+            <button
+              type="button"
+              className="text-sm font-semibold rounded px-3 py-1 bg-amber-800 hover:bg-amber-700 text-white"
+              onClick={handleTogglePause}
+            >
+              {gamePaused ? 'Resume' : 'Pause'}
+            </button>
+          )}
+          <span className="text-sm text-gray-500 truncate max-w-[10rem]">{roomName || roomId}</span>
+        </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden">

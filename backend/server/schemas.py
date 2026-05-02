@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from game.activation import ActivationEvent
 from game.board import Direction
@@ -116,6 +116,7 @@ class MsgDealHand(BaseModel):
     type: Literal["deal_hand"] = "deal_hand"
     hand: list[CardOut]
     locked_cards: dict[int, CardOut] = {}
+    programming_seconds_remaining: float | None = None
 
 
 class MsgPhaseChange(BaseModel):
@@ -141,6 +142,14 @@ class MsgStateSync(BaseModel):
     robots: list[RobotOut]
     hand: list[CardOut]
     locked_cards: dict[int, CardOut] = {}
+    paused: bool = False
+    programming_seconds_remaining: float | None = None
+
+
+class MsgGamePaused(BaseModel):
+    type: Literal["game_paused"] = "game_paused"
+    paused: bool
+    programming_seconds_remaining: float | None = None
 
 
 class MsgError(BaseModel):
@@ -160,7 +169,7 @@ class CmdCreateRoom(BaseModel):
     type: Literal["create_room"]
     player_name: str
     room_name: str
-    required_players: int = 2
+    required_players: int = Field(default=2, ge=1, le=4)
 
 
 class CmdJoinRoom(BaseModel):
@@ -185,6 +194,11 @@ class CmdForceStart(BaseModel):
 class CmdSubmitRegisters(BaseModel):
     type: Literal["submit_registers"]
     cards: list[CardOut]
+
+
+class CmdSetPaused(BaseModel):
+    type: Literal["set_paused"]
+    value: bool
 
 
 def parse_card(raw: CardOut) -> Card:

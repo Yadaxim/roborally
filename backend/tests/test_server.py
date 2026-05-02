@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from fastapi.testclient import TestClient
 
 import server.main as server_main
+from game.engine import GamePhase
 from server.main import app
 
 
@@ -186,10 +187,25 @@ class TestLobby:
                 ws_recv(ws2)  # roster
                 ws_recv(ws1)  # roster (bob joined)
 
-                # Force start (only 2 of 3 required, but >= MIN_PLAYERS_TO_START)
+                # Force start (only 2 of 3 required, but >= 1 player)
                 ws_send(ws1, type="force_start")
                 msg = ws_recv(ws1)
                 assert msg["type"] == "game_started"
+
+    def test_single_player_room_force_start(self, client):
+        with connected_ws(client) as ws:
+            ws_send(
+                ws,
+                type="create_room",
+                player_name="solo",
+                room_name="SoloRun",
+                required_players=1,
+            )
+            ws_recv(ws)  # joined
+            ws_recv(ws)  # roster
+            ws_send(ws, type="force_start")
+            msg = ws_recv(ws)
+            assert msg["type"] == "game_started"
 
     def test_force_start_by_non_host_returns_error(self, client):
         with connected_ws(client) as ws1:
@@ -220,6 +236,29 @@ class TestLobby:
             assert msg["type"] == "room_list"
             room_names = [r["room_name"] for r in msg["rooms"]]
             assert "Visible Room" in room_names
+
+    def test_room_list_pushed_to_browser_when_another_player_creates_room(self, client):
+        """Clients waiting on the browse screen receive room_list updates without reloading."""
+        with client.websocket_connect("/ws") as ws_browser:
+            initial = ws_recv(ws_browser)
+            assert initial["type"] == "room_list"
+            assert not any(r["room_name"] == "Live Room" for r in initial["rooms"])
+
+            with connected_ws(client) as ws_creator:
+                ws_send(
+                    ws_creator,
+                    type="create_room",
+                    player_name="bob",
+                    room_name="Live Room",
+                    required_players=2,
+                )
+                ws_recv(ws_creator)  # joined
+                ws_recv(ws_creator)  # roster
+
+            pushed = ws_recv(ws_browser)
+            assert pushed["type"] == "room_list"
+            names = [r["room_name"] for r in pushed["rooms"]]
+            assert "Live Room" in names
 
 
 class TestStartGame:
@@ -330,6 +369,69 @@ class TestReconnection:
             msg = ws_recv(ws2)
             assert msg["type"] == "joined"
             assert len(server_main._rooms["rejoin3"].engine.robots) == 1
+
+
+class TestPause:
+    def test_pause_freezes_programming_timer(self, client, monkeypatch):
+        monkeypatch.setattr(server_main, "PROGRAMMING_TIMEOUT", 0.12)
+        with connected_ws(client) as ws:
+            ws_send(ws, type="join", room_id="pause1", player_id="host")
+            ws_recv(ws)
+            ws_send(ws, type="start")
+            ws_recv(ws)
+            ws_recv(ws)
+            ws_recv(ws)
+            ws_send(ws, type="set_paused", value=True)
+            gp = ws_recv(ws)
+            assert gp["type"] == "game_paused"
+            assert gp["paused"] is True
+            assert gp.get("programming_seconds_remaining") is not None
+            time.sleep(0.35)
+            assert server_main._rooms["pause1"].engine.phase == GamePhase.PROGRAMMING
+            ws_send(ws, type="set_paused", value=False)
+            ws_recv(ws)
+            time.sleep(0.2)
+            msg = ws_recv(ws)
+            assert msg["type"] == "phase_change"
+            assert msg["phase"] == "activation"
+
+    def test_non_host_set_paused_rejected(self, client):
+        with connected_ws(client) as ws1:
+            ws_send(ws1, type="create_room", player_name="alice", room_name="Pz", required_players=2)
+            joined = ws_recv(ws1)
+            ws_recv(ws1)
+            room_id = joined["room_id"]
+            with connected_ws(client) as ws2:
+                ws_send(ws2, type="join_room", player_name="bob", room_id=room_id)
+                ws_recv(ws2)
+                ws_recv(ws2)
+                ws_recv(ws1)
+                ws_send(ws1, type="force_start")
+                for _ in range(3):
+                    ws_recv(ws1)  # game_started, phase_change, deal_hand
+                for _ in range(3):
+                    ws_recv(ws2)
+                ws_send(ws2, type="set_paused", value=True)
+                msg = ws_recv(ws2)
+                assert msg["type"] == "error"
+
+    def test_rejoin_state_sync_includes_pause_fields(self, client):
+        with connected_ws(client) as ws1:
+            ws_send(ws1, type="join", room_id="pause_sync", player_id="alice")
+            ws_recv(ws1)
+            ws_send(ws1, type="start")
+            ws_recv(ws1)
+            ws_recv(ws1)
+            ws_recv(ws1)
+            ws_send(ws1, type="set_paused", value=True)
+            ws_recv(ws1)
+        with connected_ws(client) as ws2:
+            ws_send(ws2, type="join", room_id="pause_sync", player_id="alice")
+            ws_recv(ws2)
+            sync = ws_recv(ws2)
+            assert sync["type"] == "state_sync"
+            assert sync["paused"] is True
+            assert "programming_seconds_remaining" in sync
 
 
 class TestProgrammingTimer:

@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { Card, Phase, Robot, ActivationEvent, PendingRegister, RoomSummary, LobbyPlayer } from '../types/game'
 
+/** Must match backend `PROGRAMMING_TIMEOUT` (seconds). */
+export const PROGRAMMING_TIMEOUT_SEC = 30
+
 interface GameState {
   // Connection
   connected: boolean
@@ -25,6 +28,8 @@ interface GameState {
   showRoundResult: boolean
   winner: string | null
   dealTime: number | null
+  gamePaused: boolean
+  programmingSecondsRemaining: number | null
 
   // Animation queue
   pendingRegisters: PendingRegister[]
@@ -39,14 +44,22 @@ interface GameState {
   setRobots: (robots: Robot[]) => void
   updateRobot: (id: string, updates: Partial<Robot>) => void
   setHand: (hand: Card[]) => void
-  setDeal: (hand: Card[], lockedCards: Record<number, Card>) => void
+  setDeal: (hand: Card[], lockedCards: Record<number, Card>, programmingSecondsRemaining?: number | null) => void
   setRegister: (slot: number, card: Card | null) => void
   clearRegisters: () => void
   setLastEvents: (events: ActivationEvent[]) => void
   appendRoundEvents: (events: ActivationEvent[]) => void
   setShowRoundResult: (show: boolean) => void
   setWinner: (winner: string | null) => void
-  applyStateSync: (phase: Phase, robots: Robot[], hand: Card[], lockedCards: Record<number, Card>) => void
+  applyStateSync: (
+    phase: Phase,
+    robots: Robot[],
+    hand: Card[],
+    lockedCards: Record<number, Card>,
+    paused?: boolean,
+    programmingSecondsRemaining?: number | null,
+  ) => void
+  setGamePaused: (paused: boolean, programmingSecondsRemaining?: number | null) => void
   enqueueRegister: (msg: PendingRegister) => void
   dequeueRegister: () => PendingRegister | null
   reset: () => void
@@ -65,7 +78,8 @@ const INITIAL: Pick<
   | 'connected' | 'playerId' | 'roomId'
   | 'rooms' | 'lobbyPlayers' | 'isHost' | 'roomName' | 'requiredPlayers'
   | 'phase' | 'robots' | 'hand' | 'registers' | 'lockedCards'
-  | 'lastEvents' | 'roundEvents' | 'showRoundResult' | 'winner' | 'dealTime' | 'pendingRegisters'
+  | 'lastEvents' | 'roundEvents' | 'showRoundResult' | 'winner' | 'dealTime'
+  | 'gamePaused' | 'programmingSecondsRemaining' | 'pendingRegisters'
 > = {
   connected: false,
   playerId: null,
@@ -85,6 +99,8 @@ const INITIAL: Pick<
   showRoundResult: false,
   winner: null,
   dealTime: null,
+  gamePaused: false,
+  programmingSecondsRemaining: null,
   pendingRegisters: [],
 }
 
@@ -107,14 +123,23 @@ export const useGameStore = create<GameState>((set) => ({
   updateRobot: (id, updates) =>
     set((s) => ({ robots: s.robots.map(r => r.id === id ? { ...r, ...updates } : r) })),
   setHand: (hand) => set({ hand, dealTime: Date.now() }),
-  setDeal: (hand, lockedCards) => set({
-    hand,
-    lockedCards,
-    registers: buildRegistersFromLocked(lockedCards),
-    dealTime: Date.now(),
-    roundEvents: [],
-    showRoundResult: false,
-  }),
+  setDeal: (hand, lockedCards, programmingSecondsRemaining) => {
+    const rem = programmingSecondsRemaining ?? null
+    const dealTime =
+      rem != null
+        ? Date.now() - (PROGRAMMING_TIMEOUT_SEC - rem) * 1000
+        : Date.now()
+    return set({
+      hand,
+      lockedCards,
+      registers: buildRegistersFromLocked(lockedCards),
+      dealTime,
+      gamePaused: false,
+      programmingSecondsRemaining: rem,
+      roundEvents: [],
+      showRoundResult: false,
+    })
+  },
   setRegister: (slot, card) =>
     set((s) => {
       const regNum = slot + 1
@@ -130,7 +155,28 @@ export const useGameStore = create<GameState>((set) => ({
     set((s) => ({ roundEvents: [...s.roundEvents, ...events] })),
   setShowRoundResult: (showRoundResult) => set({ showRoundResult }),
   setWinner: (winner) => set({ winner }),
-  applyStateSync: (phase, robots, hand, lockedCards) => set({ phase, robots, hand, lockedCards }),
+  applyStateSync: (phase, robots, hand, lockedCards, paused, programmingSecondsRemaining) =>
+    set({
+      phase,
+      robots,
+      hand,
+      lockedCards,
+      gamePaused: paused ?? false,
+      programmingSecondsRemaining: programmingSecondsRemaining ?? null,
+      ...(programmingSecondsRemaining != null && phase === 'programming'
+        ? {
+            dealTime: Date.now() - (PROGRAMMING_TIMEOUT_SEC - programmingSecondsRemaining) * 1000,
+          }
+        : {}),
+    }),
+  setGamePaused: (paused, programmingSecondsRemaining) =>
+    set(() => ({
+      gamePaused: paused,
+      programmingSecondsRemaining: programmingSecondsRemaining ?? null,
+      ...(programmingSecondsRemaining != null && !paused
+        ? { dealTime: Date.now() - (PROGRAMMING_TIMEOUT_SEC - programmingSecondsRemaining) * 1000 }
+        : {}),
+    })),
   enqueueRegister: (msg) => set((s) => ({ pendingRegisters: [...s.pendingRegisters, msg] })),
   dequeueRegister: () => {
     let result: PendingRegister | null = null

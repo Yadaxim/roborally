@@ -1,22 +1,34 @@
 import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useEffect, useState } from 'react'
-import { useGameStore } from '../../store/gameStore'
+import { useGameStore, PROGRAMMING_TIMEOUT_SEC } from '../../store/gameStore'
 import { send } from '../../ws/client'
 import CardComponent from './CardComponent'
 import type { Card } from '../../types/game'
 
-const TIMEOUT = 30  // must match backend PROGRAMMING_TIMEOUT
-
 function useCountdown(dealTime: number | null): number {
-  const [remaining, setRemaining] = useState(TIMEOUT)
+  const gamePaused = useGameStore(s => s.gamePaused)
+  const serverRemaining = useGameStore(s => s.programmingSecondsRemaining)
+  const [remaining, setRemaining] = useState(PROGRAMMING_TIMEOUT_SEC)
   useEffect(() => {
-    if (dealTime === null) { setRemaining(TIMEOUT); return }
-    const tick = () => setRemaining(Math.max(0, Math.ceil(TIMEOUT - (Date.now() - dealTime) / 1000)))
+    if (dealTime === null) {
+      setRemaining(PROGRAMMING_TIMEOUT_SEC)
+      return
+    }
+    const tick = () => {
+      const s = useGameStore.getState()
+      if (s.gamePaused && s.programmingSecondsRemaining != null) {
+        setRemaining(Math.max(0, Math.ceil(s.programmingSecondsRemaining)))
+      } else {
+        setRemaining(
+          Math.max(0, Math.ceil(PROGRAMMING_TIMEOUT_SEC - (Date.now() - dealTime) / 1000)),
+        )
+      }
+    }
     tick()
     const id = setInterval(tick, 500)
     return () => clearInterval(id)
-  }, [dealTime])
+  }, [dealTime, gamePaused, serverRemaining])
   return remaining
 }
 
@@ -148,7 +160,7 @@ export default function ProgrammingPanel() {
               <div
                 className="h-1 rounded transition-all duration-500"
                 style={{
-                  width: `${(remaining / TIMEOUT) * 100}%`,
+                  width: `${(remaining / PROGRAMMING_TIMEOUT_SEC) * 100}%`,
                   backgroundColor: remaining < 10 ? '#f87171' : '#818cf8',
                 }}
               />

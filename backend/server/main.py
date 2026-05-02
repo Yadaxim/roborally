@@ -4,6 +4,7 @@ import asyncio
 import json
 import random
 import string
+import time
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -20,9 +21,11 @@ from server.schemas import (
     CmdJoin,
     CmdJoinRoom,
     CmdReady,
+    CmdSetPaused,
     CmdSubmitRegisters,
     EventOut,
     MsgDealHand,
+    MsgGamePaused,
     MsgError,
     MsgGameOver,
     MsgGameStarted,
@@ -56,6 +59,13 @@ _connections: dict[str, dict[str, WebSocket]] = {}
 
 # room_id → running timer task
 _timers: dict[str, asyncio.Task] = {}
+
+# programming timer: monotonic deadline and frozen remaining while paused
+_programming_deadline_mono: dict[str, float] = {}
+_programming_frozen_remaining: dict[str, float] = {}
+
+# Clients connected but still choosing a room (awaiting first join/create/join_room message)
+_browse_waiters: dict[int, WebSocket] = {}
 
 PROGRAMMING_TIMEOUT = 30  # seconds
 
@@ -109,6 +119,21 @@ def _room_list_msg() -> MsgRoomList:
     ])
 
 
+async def _broadcast_room_list_to_browsers() -> None:
+    """Push fresh room_list to everyone still on the browse screen (no reload)."""
+    if not _browse_waiters:
+        return
+    payload = _room_list_msg().model_dump_json()
+    stale: list[int] = []
+    for wid, bws in list(_browse_waiters.items()):
+        try:
+            await bws.send_text(payload)
+        except Exception:
+            stale.append(wid)
+    for wid in stale:
+        _browse_waiters.pop(wid, None)
+
+
 def _roster_msg(room: Room) -> MsgRosterUpdate:
     return MsgRosterUpdate(players=[
         PlayerInRoomOut(
@@ -124,11 +149,35 @@ async def _broadcast_roster(room_id: str) -> None:
     await _broadcast(room_id, _roster_msg(_rooms[room_id]))
 
 
+async def _wait_unpaused(room_id: str) -> None:
+    while True:
+        r = _rooms.get(room_id)
+        if r is None or not r.paused:
+            return
+        await asyncio.sleep(0.15)
+
+
+def _programming_seconds_remaining(room_id: str) -> float | None:
+    room = _rooms.get(room_id)
+    if room is None or room.engine.phase != GamePhase.PROGRAMMING:
+        return None
+    if room.paused:
+        if room_id in _programming_frozen_remaining:
+            return _programming_frozen_remaining[room_id]
+        return None
+    dl = _programming_deadline_mono.get(room_id)
+    if dl is None:
+        return None
+    return max(0.0, dl - time.monotonic())
+
+
 async def _run_activation(room_id: str) -> None:
     """Drive all 5 registers, broadcasting events after each one."""
     room = _rooms[room_id]
     for reg in range(1, 6):
-        if room.engine.phase != GamePhase.ACTIVATION:
+        await _wait_unpaused(room_id)
+        room = _rooms.get(room_id)
+        if room is None or room.engine.phase != GamePhase.ACTIVATION:
             break
         events = room.run_next_register()
         robots = [_robot_out(r) for r in room.engine.robots.values()]
@@ -149,9 +198,27 @@ async def _run_activation(room_id: str) -> None:
 
 async def _programming_timer(room_id: str) -> None:
     """Auto-submit registers for players who haven't programmed when time runs out."""
-    await asyncio.sleep(PROGRAMMING_TIMEOUT)
+    while True:
+        room = _rooms.get(room_id)
+        if room is None or room.engine.phase != GamePhase.PROGRAMMING:
+            _programming_deadline_mono.pop(room_id, None)
+            _programming_frozen_remaining.pop(room_id, None)
+            return
+        if room.paused:
+            await asyncio.sleep(0.15)
+            continue
+        dl = _programming_deadline_mono.get(room_id)
+        if dl is None:
+            return
+        now = time.monotonic()
+        if now >= dl:
+            break
+        await asyncio.sleep(min(0.15, dl - now))
+
     room = _rooms.get(room_id)
     if room is None or room.engine.phase != GamePhase.PROGRAMMING:
+        _programming_deadline_mono.pop(room_id, None)
+        _programming_frozen_remaining.pop(room_id, None)
         return
     for pid, submitted in list(room.engine.registers.items()):
         if submitted is None:
@@ -161,6 +228,8 @@ async def _programming_timer(room_id: str) -> None:
                     room.submit_registers(pid, hand[:5])
                 except RoomError:
                     pass
+    _programming_deadline_mono.pop(room_id, None)
+    _programming_frozen_remaining.pop(room_id, None)
     if room.engine.phase == GamePhase.ACTIVATION:
         await _broadcast(room_id, MsgPhaseChange(phase="activation"))
         asyncio.create_task(_run_activation(room_id))
@@ -175,28 +244,41 @@ async def _send_state_sync(ws: WebSocket, room: Room, player_id: str) -> None:
         hand = [CardOut.from_card(c) for c in room.get_hand(player_id)]
         raw_locked = room.engine.locked_cards.get(player_id, {})
         locked_out = {reg: CardOut.from_card(c) for reg, c in raw_locked.items()}
-    await _send(ws, MsgStateSync(phase=phase, robots=robots, hand=hand, locked_cards=locked_out))
+    rem = _programming_seconds_remaining(room.room_id) if room.engine.phase == GamePhase.PROGRAMMING else None
+    await _send(ws, MsgStateSync(
+        phase=phase, robots=robots, hand=hand, locked_cards=locked_out,
+        paused=room.paused, programming_seconds_remaining=rem,
+    ))
 
 
 def _cancel_timer(room_id: str) -> None:
     task = _timers.pop(room_id, None)
     if task and not task.done():
         task.cancel()
+    _programming_deadline_mono.pop(room_id, None)
+    _programming_frozen_remaining.pop(room_id, None)
 
 
 async def _deal_hands(room_id: str) -> None:
     room = _rooms[room_id]
+    room.paused = False
     await _broadcast(room_id, MsgPhaseChange(phase="programming"))
+    _cancel_timer(room_id)
+    _programming_deadline_mono[room_id] = time.monotonic() + PROGRAMMING_TIMEOUT
+    rem_init = max(0.0, _programming_deadline_mono[room_id] - time.monotonic())
     conns = _connections.get(room_id, {})
     for pid, ws in list(conns.items()):
         hand = room.get_hand(pid)
         locked = room.engine.locked_cards.get(pid, {})
         locked_out = {reg: CardOut.from_card(c) for reg, c in locked.items()}
         try:
-            await _send(ws, MsgDealHand(hand=[CardOut.from_card(c) for c in hand], locked_cards=locked_out))
+            await _send(ws, MsgDealHand(
+                hand=[CardOut.from_card(c) for c in hand],
+                locked_cards=locked_out,
+                programming_seconds_remaining=rem_init,
+            ))
         except Exception:
             pass
-    _cancel_timer(room_id)
     _timers[room_id] = asyncio.create_task(_programming_timer(room_id))
 
 
@@ -210,6 +292,7 @@ async def _start_game(room_id: str) -> None:
     robots = [_robot_out(r) for r in room.engine.robots.values()]
     await _broadcast(room_id, MsgGameStarted(robots=robots))
     await _deal_hands(room_id)
+    await _broadcast_room_list_to_browsers()
 
 
 @app.get("/health")
@@ -231,6 +314,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     try:
         # Send current room list to newly connected client
         await _send(ws, _room_list_msg())
+        _browse_waiters[id(ws)] = ws
 
         # First message: join (legacy), create_room, or join_room
         raw = await ws.receive_text()
@@ -254,6 +338,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await _send(ws, MsgError(message=str(e)))
                 await ws.close()
                 return
+            _browse_waiters.pop(id(ws), None)
             _connections[room_id][player_id] = ws
             await _send(ws, MsgJoined(
                 player_id=player_id,
@@ -264,6 +349,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             ))
             if is_reconnect:
                 await _send_state_sync(ws, room, player_id)
+            await _broadcast_room_list_to_browsers()
 
         elif msg_type == "create_room":
             cmd = CmdCreateRoom(**data)
@@ -281,6 +367,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             _rooms[room_id].join(player_id)
             _connections[room_id][player_id] = ws
             room = _rooms[room_id]
+            _browse_waiters.pop(id(ws), None)
             await _send(ws, MsgJoined(
                 player_id=player_id,
                 room_id=room_id,
@@ -289,6 +376,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 required_players=cmd.required_players,
             ))
             await _broadcast_roster(room_id)
+            await _broadcast_room_list_to_browsers()
 
         elif msg_type == "join_room":
             cmd = CmdJoinRoom(**data)
@@ -307,6 +395,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await ws.close()
                 return
             _connections[room_id][player_id] = ws
+            _browse_waiters.pop(id(ws), None)
             await _send(ws, MsgJoined(
                 player_id=player_id,
                 room_id=room_id,
@@ -317,6 +406,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             if is_reconnect:
                 await _send_state_sync(ws, room, player_id)
             await _broadcast_roster(room_id)
+            await _broadcast_room_list_to_browsers()
 
         else:
             await _send(ws, MsgError(message=f"Expected join, create_room, or join_room, got: {msg_type}"))
@@ -346,7 +436,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     await _send(ws, MsgError(message="Only the host can force start"))
                     continue
                 if not room.can_force_start:
-                    await _send(ws, MsgError(message="Need at least 2 players to start"))
+                    await _send(ws, MsgError(message="Need at least one player to start"))
                     continue
                 if room.engine.phase != GamePhase.LOBBY:
                     await _send(ws, MsgError(message="Game already started"))
@@ -360,6 +450,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     robots = [_robot_out(r) for r in room.engine.robots.values()]
                     await _broadcast(room_id, MsgGameStarted(robots=robots))
                     await _deal_hands(room_id)
+                    await _broadcast_room_list_to_browsers()
                 except RoomError as e:
                     await _send(ws, MsgError(message=str(e)))
 
@@ -376,6 +467,31 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     await _broadcast(room_id, MsgPhaseChange(phase="activation"))
                     asyncio.create_task(_run_activation(room_id))
 
+            elif msg_type == "set_paused":
+                cmd_p = CmdSetPaused(**data)
+                if player_id != room.host_id:
+                    await _send(ws, MsgError(message="Only the host can pause or resume"))
+                    continue
+                if room.engine.phase not in (GamePhase.PROGRAMMING, GamePhase.ACTIVATION):
+                    await _send(ws, MsgError(message="Can only pause during programming or activation"))
+                    continue
+                if cmd_p.value:
+                    if not room.paused:
+                        dl = _programming_deadline_mono.get(room_id)
+                        if dl is not None:
+                            _programming_frozen_remaining[room_id] = max(0.0, dl - time.monotonic())
+                        room.paused = True
+                else:
+                    if room.paused:
+                        rem = _programming_frozen_remaining.pop(room_id, None)
+                        room.paused = False
+                        if rem is not None:
+                            _programming_deadline_mono[room_id] = time.monotonic() + rem
+                await _broadcast(room_id, MsgGamePaused(
+                    paused=room.paused,
+                    programming_seconds_remaining=_programming_seconds_remaining(room_id),
+                ))
+
             else:
                 await _send(ws, MsgError(message=f"Unknown command: {msg_type}"))
 
@@ -387,8 +503,10 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         except Exception:
             pass
     finally:
+        _browse_waiters.pop(id(ws), None)
         if room_id and player_id:
             _connections.get(room_id, {}).pop(player_id, None)
             if room_id in _rooms and _rooms[room_id].engine.phase == GamePhase.LOBBY:
                 if _connections.get(room_id):
                     await _broadcast_roster(room_id)
+                await _broadcast_room_list_to_browsers()

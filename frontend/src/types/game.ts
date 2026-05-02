@@ -67,9 +67,10 @@ export type ServerMessage =
   | { type: 'roster_update'; players: LobbyPlayer[] }
   | { type: 'player_ready'; player_id: string; is_ready: boolean }
   | { type: 'game_started'; robots: Robot[] }
-  | { type: 'deal_hand'; hand: Card[]; locked_cards: Record<number, Card> }
+  | { type: 'deal_hand'; hand: Card[]; locked_cards: Record<number, Card>; programming_seconds_remaining?: number | null }
   | { type: 'phase_change'; phase: Phase }
-  | { type: 'state_sync'; phase: Phase; robots: Robot[]; hand: Card[]; locked_cards: Record<number, Card> }
+  | { type: 'state_sync'; phase: Phase; robots: Robot[]; hand: Card[]; locked_cards: Record<number, Card>; paused?: boolean; programming_seconds_remaining?: number | null }
+  | { type: 'game_paused'; paused: boolean; programming_seconds_remaining?: number | null }
   | { type: 'register_events'; register_num: number; events: ActivationEvent[]; robots: Robot[] }
   | { type: 'game_over'; winner: string | null }
   | { type: 'error'; message: string }
@@ -83,3 +84,4 @@ export type ClientMessage =
   | { type: 'force_start' }
   | { type: 'start' }
   | { type: 'submit_registers'; cards: Card[] }
+  | { type: 'set_paused'; value: boolean }

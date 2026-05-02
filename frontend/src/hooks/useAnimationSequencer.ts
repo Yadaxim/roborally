@@ -8,6 +8,12 @@ function delay(ms: number) {
   return new Promise<void>(resolve => setTimeout(resolve, ms))
 }
 
+async function waitUnpaused() {
+  while (useGameStore.getState().gamePaused) {
+    await delay(50)
+  }
+}
+
 export function useAnimationSequencer() {
   const playing = useRef(false)
   const pendingLength = useGameStore(s => s.pendingRegisters.length)
@@ -22,7 +28,10 @@ export function useAnimationSequencer() {
     const msg = store.dequeueRegister()
     if (!msg) { playing.current = false; return }
 
+    await waitUnpaused()
+
     for (const ev of msg.events) {
+      await waitUnpaused()
       if (ev.type === 'move' && ev.to) {
         store.updateRobot(ev.robot_id, { x: ev.to[0], y: ev.to[1] })
         await delay(STEP_MS)
@@ -40,6 +49,7 @@ export function useAnimationSequencer() {
     store.setLastEvents(msg.events)
     store.appendRoundEvents(msg.events)
 
+    await waitUnpaused()
     await delay(REGISTER_PAUSE_MS)
 
     playing.current = false

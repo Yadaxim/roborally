@@ -53,7 +53,7 @@ function dispatch(msg: ServerMessage): void {
       store.setRobots(msg.robots)
       break
     case 'deal_hand':
-      store.setDeal(msg.hand, msg.locked_cards)
+      store.setDeal(msg.hand, msg.locked_cards, msg.programming_seconds_remaining)
       break
     case 'phase_change':
       if (msg.phase === 'programming' && store.phase === 'activation') {
@@ -62,7 +62,17 @@ function dispatch(msg: ServerMessage): void {
       store.setPhase(msg.phase)
       break
     case 'state_sync':
-      store.applyStateSync(msg.phase, msg.robots, msg.hand, msg.locked_cards)
+      store.applyStateSync(
+        msg.phase,
+        msg.robots,
+        msg.hand,
+        msg.locked_cards,
+        msg.paused,
+        msg.programming_seconds_remaining,
+      )
+      break
+    case 'game_paused':
+      store.setGamePaused(msg.paused, msg.programming_seconds_remaining)
       break
     case 'register_events':
       store.enqueueRegister(msg)

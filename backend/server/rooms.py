@@ -7,7 +7,7 @@ from game.engine import GameEngine, GamePhase
 
 
 MAX_PLAYERS = 4
-MIN_PLAYERS_TO_START = 2
+MIN_PLAYERS_TO_FORCE_START = 1
 
 
 class RoomError(Exception):
@@ -29,6 +29,7 @@ class Room:
         self.required_players = required_players
         self.engine = GameEngine(board)
         self.ready: dict[str, bool] = {}
+        self.paused: bool = False
 
     def join(self, player_id: str) -> None:
         if player_id in self.engine.robots:
@@ -55,7 +56,7 @@ class Room:
 
     @property
     def can_force_start(self) -> bool:
-        return len(self.engine.robots) >= MIN_PLAYERS_TO_START
+        return len(self.engine.robots) >= MIN_PLAYERS_TO_FORCE_START
 
     def start(self) -> None:
         try:

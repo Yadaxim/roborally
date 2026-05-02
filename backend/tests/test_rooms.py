@@ -54,6 +54,18 @@ class TestRoomLifecycle:
         with pytest.raises(RoomError):
             room.start()
 
+    def test_can_force_start_with_one_player(self):
+        room = Room("r1", simple_board(), required_players=1)
+        room.join("p1")
+        assert room.can_force_start is True
+
+    def test_all_ready_true_when_solo_ready(self):
+        room = Room("r1", simple_board(), required_players=1)
+        room.join("solo")
+        assert room.all_ready is False
+        room.set_ready("solo", True)
+        assert room.all_ready is True
+
 
 class TestRoomProgramming:
     def setup_method(self):
