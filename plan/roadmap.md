@@ -81,12 +81,14 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 - ✅ **Minimum player enforcement** — `can_force_start` allows solo (≥ 1 player); `all_ready` requires the room's `required_players` count (1–4)
 - ✅ **Live room list for browsers** — connections still picking a room receive pushed `room_list` when any lobby room is created, joined, starts a match, or a player leaves (no reload)
 
+## GAMEPLAY
+
 - ✅ Pause button — host can pause/unpause the game; freezes the programming timer and delays activation until resumed
 
-- show next to the board the card and registry number that is been animated in that moment.
+- show next to the board the card and registry number that is been animated in that moment. 
 
 
-- ⬜ Live camera angle slider (elevation + rotation) for isometric view tuning
+- ✅ Live camera angle slider (elevation + rotation) for isometric view tuning — panel bottom-left in isometric mode; orbit 0–360°, elevation 15–75°; smooth lerp to target
 
 - ⬜ Laser beam visual (red line flash + fade)
 - ⬜ Damage animation (robot flashes red)
@@ -123,4 +125,5 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 
 
 ## BUGS
+
 
