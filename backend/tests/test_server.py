@@ -311,11 +311,13 @@ class TestSubmitRegisters:
             hand_msg = ws_recv(ws)  # deal_hand
             hand = hand_msg["hand"]
             ws_send(ws, type="submit_registers", cards=hand[:5])
+            msg = ws_recv(ws)  # your_program
+            assert msg["type"] == "your_program"
             msg = ws_recv(ws)  # phase_change → activation
             assert msg["type"] == "phase_change"
             assert msg["phase"] == "activation"
-            # Should receive 5 register_events
-            for _ in range(5):
+            # 5 registers × 8 sub-steps each
+            for _ in range(5 * 8):
                 ev_msg = ws_recv(ws)
                 assert ev_msg["type"] == "register_events"
 
@@ -374,26 +376,36 @@ class TestReconnection:
 class TestPause:
     def test_pause_freezes_programming_timer(self, client, monkeypatch):
         monkeypatch.setattr(server_main, "PROGRAMMING_TIMEOUT", 0.12)
-        with connected_ws(client) as ws:
-            ws_send(ws, type="join", room_id="pause1", player_id="host")
-            ws_recv(ws)
-            ws_send(ws, type="start")
-            ws_recv(ws)
-            ws_recv(ws)
-            ws_recv(ws)
-            ws_send(ws, type="set_paused", value=True)
-            gp = ws_recv(ws)
-            assert gp["type"] == "game_paused"
-            assert gp["paused"] is True
-            assert gp.get("programming_seconds_remaining") is not None
-            time.sleep(0.35)
-            assert server_main._rooms["pause1"].engine.phase == GamePhase.PROGRAMMING
-            ws_send(ws, type="set_paused", value=False)
-            ws_recv(ws)
-            time.sleep(0.2)
-            msg = ws_recv(ws)
-            assert msg["type"] == "phase_change"
-            assert msg["phase"] == "activation"
+        with connected_ws(client) as ws1:
+            ws_send(ws1, type="join", room_id="pause1", player_id="p1")
+            ws_recv(ws1)
+            with connected_ws(client) as ws2:
+                ws_send(ws2, type="join", room_id="pause1", player_id="p2")
+                ws_recv(ws2)
+                ws_send(ws1, type="force_start")
+                ws_recv(ws1)
+                ws_recv(ws1)
+                deal = ws_recv(ws1)
+                assert deal["type"] == "deal_hand"
+                for _ in range(3):
+                    ws_recv(ws2)
+                ws_send(ws1, type="submit_registers", cards=deal["hand"][:5])
+                assert ws_recv(ws1)["type"] == "programming_timer"
+                assert ws_recv(ws2)["type"] == "programming_timer"
+                ws_send(ws1, type="set_paused", value=True)
+                gp = ws_recv(ws1)
+                assert gp["type"] == "game_paused"
+                assert gp["paused"] is True
+                assert gp.get("programming_seconds_remaining") is not None
+                time.sleep(0.35)
+                assert server_main._rooms["pause1"].engine.phase == GamePhase.PROGRAMMING
+                ws_send(ws1, type="set_paused", value=False)
+                ws_recv(ws1)
+                time.sleep(0.2)
+                assert ws_recv(ws1)["type"] == "your_program"
+                msg = ws_recv(ws1)
+                assert msg["type"] == "phase_change"
+                assert msg["phase"] == "activation"
 
     def test_non_host_set_paused_rejected(self, client):
         with connected_ws(client) as ws1:
@@ -436,18 +448,33 @@ class TestPause:
 
 class TestProgrammingTimer:
     def test_timer_auto_submits_and_starts_activation(self, client, monkeypatch):
-        monkeypatch.setattr(server_main, "PROGRAMMING_TIMEOUT", 0.05)
-        with connected_ws(client) as ws:
-            ws_send(ws, type="join", room_id="timer1", player_id="p1")
-            ws_recv(ws)  # joined
-            ws_send(ws, type="start")
-            ws_recv(ws)  # game_started
-            ws_recv(ws)  # phase_change programming
-            ws_recv(ws)  # deal_hand
-            time.sleep(0.3)
-            msg = ws_recv(ws)
-            assert msg["type"] == "phase_change"
-            assert msg["phase"] == "activation"
+        monkeypatch.setattr(server_main, "PROGRAMMING_TIMEOUT", 0.08)
+        with connected_ws(client) as ws1:
+            ws_send(ws1, type="join", room_id="timer1", player_id="p1")
+            ws_recv(ws1)
+            with connected_ws(client) as ws2:
+                ws_send(ws2, type="join", room_id="timer1", player_id="p2")
+                ws_recv(ws2)
+                ws_send(ws1, type="force_start")
+                ws_recv(ws1)
+                ws_recv(ws1)
+                deal = ws_recv(ws1)
+                assert deal["type"] == "deal_hand"
+                assert deal.get("programming_seconds_remaining") is None
+                for _ in range(3):
+                    ws_recv(ws2)
+                ws_send(ws1, type="submit_registers", cards=deal["hand"][:5])
+                assert ws_recv(ws1)["type"] == "programming_timer"
+                assert ws_recv(ws2)["type"] == "programming_timer"
+                time.sleep(0.2)
+                assert ws_recv(ws1)["type"] == "your_program"
+                act = ws_recv(ws1)
+                assert act["type"] == "phase_change"
+                assert act["phase"] == "activation"
+                assert ws_recv(ws2)["type"] == "your_program"
+                act2 = ws_recv(ws2)
+                assert act2["type"] == "phase_change"
+                assert act2["phase"] == "activation"
 
     def test_timer_cancelled_when_all_submit_early(self, client, monkeypatch):
         monkeypatch.setattr(server_main, "PROGRAMMING_TIMEOUT", 0.3)
@@ -459,10 +486,11 @@ class TestProgrammingTimer:
             ws_recv(ws)  # phase_change programming
             hand_msg = ws_recv(ws)  # deal_hand
             ws_send(ws, type="submit_registers", cards=hand_msg["hand"][:5])
+            assert ws_recv(ws)["type"] == "your_program"
             msg = ws_recv(ws)  # phase_change activation
             assert msg["type"] == "phase_change"
             assert msg["phase"] == "activation"
-            for _ in range(5):
+            for _ in range(5 * 8):
                 ws_recv(ws)
             ws_recv(ws)  # phase_change programming
             ws_recv(ws)  # deal_hand

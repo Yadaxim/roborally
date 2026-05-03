@@ -1,18 +1,20 @@
 import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
-import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGameStore, PROGRAMMING_TIMEOUT_SEC } from '../../store/gameStore'
 import { send } from '../../ws/client'
 import CardComponent from './CardComponent'
 import type { Card } from '../../types/game'
 
-function useCountdown(dealTime: number | null): number {
+/** Null until the first player commits their program (server starts the 30s deadline). */
+function useCountdown(dealTime: number | null): number | null {
   const gamePaused = useGameStore(s => s.gamePaused)
   const serverRemaining = useGameStore(s => s.programmingSecondsRemaining)
-  const [remaining, setRemaining] = useState(PROGRAMMING_TIMEOUT_SEC)
+  const [remaining, setRemaining] = useState<number | null>(null)
   useEffect(() => {
     if (dealTime === null) {
-      setRemaining(PROGRAMMING_TIMEOUT_SEC)
+      setRemaining(null)
       return
     }
     const tick = () => {
@@ -59,13 +61,31 @@ function DraggableCard({ card, isUsed }: { card: Card; isUsed: boolean }) {
   )
 }
 
-function DroppableSlot({ index, card, isLocked }: { index: number; card: Card | null; isLocked: boolean }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `register-${index}` })
+function DraggableFromRegister({ index, card }: { index: number; card: Card }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `from-register-${index}`,
+    data: { card, fromRegister: index },
+  })
 
   function handleRemove() {
-    if (isLocked) return
+    if (isDragging) return
     useGameStore.getState().setRegister(index, null)
   }
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={isDragging ? 'opacity-35' : ''}
+      {...listeners}
+      {...attributes}
+    >
+      <CardComponent card={card} onClick={handleRemove} />
+    </div>
+  )
+}
+
+function DroppableSlot({ index, card, isLocked }: { index: number; card: Card | null; isLocked: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `register-${index}` })
 
   if (isLocked) {
     return (
@@ -85,9 +105,24 @@ function DroppableSlot({ index, card, isLocked }: { index: number; card: Card | 
       ].join(' ')}
     >
       {card
-        ? <CardComponent card={card} onClick={handleRemove} />
+        ? <DraggableFromRegister index={index} card={card} />
         : <span className="text-xs text-gray-500">{index + 1}</span>
       }
+    </div>
+  )
+}
+
+function HandReturnZone({ children }: { children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: 'hand-return' })
+  return (
+    <div
+      ref={setNodeRef}
+      className={[
+        'flex flex-wrap gap-2 min-h-[5.25rem] rounded-md p-1 transition-colors',
+        isOver ? 'bg-emerald-950/35 ring-1 ring-emerald-500/40' : '',
+      ].join(' ')}
+    >
+      {children}
     </div>
   )
 }
@@ -97,10 +132,41 @@ export default function ProgrammingPanel() {
   const registers = useGameStore(s => s.registers)
   const lockedCards = useGameStore(s => s.lockedCards)
   const dealTime = useGameStore(s => s.dealTime)
+  const phase = useGameStore(s => s.phase)
+  const gamePaused = useGameStore(s => s.gamePaused)
   const remaining = useCountdown(dealTime)
   const [activeCard, setActiveCard] = useState<Card | null>(null)
   const [submitted, setSubmitted] = useState(false)
+  /** Avoid double-send (React Strict Mode or repeated remaining===0 ticks). */
+  const timerSubmitSentRef = useRef(false)
+  const progRem = useGameStore(s => s.programmingSecondsRemaining)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
+  useEffect(() => {
+    setSubmitted(false)
+    timerSubmitSentRef.current = false
+  }, [hand])
+
+  /**
+   * After the deadline starts, if time runs out without Confirm: submit when all five slots
+   * are filled; otherwise the server fills empty registers with random cards from the hand
+   * (`your_program` syncs the HUD).
+   */
+  useEffect(() => {
+    if (phase !== 'programming' || gamePaused || submitted) return
+    if (progRem === null || remaining === null || remaining > 0) return
+    if (timerSubmitSentRef.current) return
+    timerSubmitSentRef.current = true
+
+    const store = useGameStore.getState()
+    const regs = store.registers
+    const filledSlots = regs.filter(Boolean) as Card[]
+
+    if (filledSlots.length === 5) {
+      send({ type: 'submit_registers', cards: regs as Card[] })
+    }
+    setSubmitted(true)
+  }, [phase, gamePaused, remaining, submitted, progRem])
 
   const lockedSlotIndices = new Set(Object.keys(lockedCards).map(n => Number(n) - 1))
   const usedPriorities = new Set(registers.filter(Boolean).map(c => c!.priority))
@@ -116,11 +182,21 @@ export default function ProgrammingPanel() {
     const { active, over } = event
     if (!over) return
     const overId = over.id.toString()
+    const activeId = active.id.toString()
+
+    if (overId === 'hand-return' && activeId.startsWith('from-register-')) {
+      const slotIndex = parseInt(activeId.replace('from-register-', ''), 10)
+      if (!lockedSlotIndices.has(slotIndex))
+        useGameStore.getState().setRegister(slotIndex, null)
+      return
+    }
+
     if (!overId.startsWith('register-')) return
     const slotIndex = parseInt(overId.split('-')[1])
     if (lockedSlotIndices.has(slotIndex)) return
     const data = active.data.current
-    if (data) useGameStore.getState().setRegister(slotIndex, data['card'] as Card)
+    if (data && data['card'])
+      useGameStore.getState().setRegister(slotIndex, data['card'] as Card)
   }
 
   function handleConfirm() {
@@ -140,9 +216,14 @@ export default function ProgrammingPanel() {
             <DroppableSlot key={i} index={i} card={c} isLocked={lockedSlotIndices.has(i)} />
           ))}
           <div className="ml-auto flex flex-col items-end gap-1.5">
-            <div className="flex items-center gap-2">
-              <span className={`text-sm font-mono tabular-nums ${remaining < 10 ? 'text-red-400' : 'text-gray-400'}`}>
-                {remaining}s
+            <div className="flex flex-col items-end gap-0.5">
+              <div className="flex items-center gap-2">
+              <span
+                className={`text-sm font-mono tabular-nums ${
+                  remaining != null && remaining < 10 ? 'text-red-400' : 'text-gray-400'
+                }`}
+              >
+                {remaining === null ? '—' : `${remaining}s`}
               </span>
               {submitted
                 ? <span className="text-sm text-gray-400 italic">Waiting for others…</span>
@@ -154,26 +235,37 @@ export default function ProgrammingPanel() {
                     Confirm
                   </button>
               }
+              </div>
+              {remaining === null && !submitted && (
+                <span className="text-[10px] text-gray-500 leading-tight text-right max-w-[14rem]">
+                  Timer starts after the first player locks in
+                </span>
+              )}
             </div>
             {/* Timer bar */}
             <div className="w-full h-1 bg-gray-600 rounded overflow-hidden">
               <div
                 className="h-1 rounded transition-all duration-500"
                 style={{
-                  width: `${(remaining / PROGRAMMING_TIMEOUT_SEC) * 100}%`,
-                  backgroundColor: remaining < 10 ? '#f87171' : '#818cf8',
+                  width:
+                    remaining === null
+                      ? '100%'
+                      : `${(remaining / PROGRAMMING_TIMEOUT_SEC) * 100}%`,
+                  backgroundColor:
+                    remaining != null && remaining < 10 ? '#f87171' : '#818cf8',
+                  opacity: remaining === null ? 0.35 : 1,
                 }}
               />
             </div>
           </div>
         </div>
 
-        {/* Hand row */}
-        <div className="flex flex-wrap gap-2">
+        {/* Hand row — drop register cards here to return them */}
+        <HandReturnZone>
           {hand.map(c => (
             <DraggableCard key={c.priority} card={c} isUsed={usedPriorities.has(c.priority)} />
           ))}
-        </div>
+        </HandReturnZone>
 
         <DragOverlay dropAnimation={null}>
           {activeCard ? <CardComponent card={activeCard} /> : null}

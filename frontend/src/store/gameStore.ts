@@ -33,6 +33,16 @@ interface GameState {
 
   // Animation queue
   pendingRegisters: PendingRegister[]
+  /** During activation animation: register card + current rules sub-step */
+  playbackHighlight: {
+    registerNum: number
+    card: Card | null
+    substepId: string
+    substepIndex: number
+    substepTotal: number
+  } | null
+  /** Captured when activation begins — HUD uses this so cards stay visible if live `registers` changes */
+  activationProgramCards: (Card | null)[] | null
 
   // Actions
   setConnected: (v: boolean) => void
@@ -46,6 +56,10 @@ interface GameState {
   setHand: (hand: Card[]) => void
   setDeal: (hand: Card[], lockedCards: Record<number, Card>, programmingSecondsRemaining?: number | null) => void
   setRegister: (slot: number, card: Card | null) => void
+  /** Replace all five registers at once (e.g. sync UI with server default program). */
+  setRegistersFromProgram: (cards: Card[]) => void
+  /** Server starts the 30s deadline after the first player submits (rules). */
+  setProgrammingTimer: (programmingSecondsRemaining: number) => void
   clearRegisters: () => void
   setLastEvents: (events: ActivationEvent[]) => void
   appendRoundEvents: (events: ActivationEvent[]) => void
@@ -62,6 +76,16 @@ interface GameState {
   setGamePaused: (paused: boolean, programmingSecondsRemaining?: number | null) => void
   enqueueRegister: (msg: PendingRegister) => void
   dequeueRegister: () => PendingRegister | null
+  setPlaybackHighlight: (
+    v: {
+      registerNum: number
+      card: Card | null
+      substepId: string
+      substepIndex: number
+      substepTotal: number
+    } | null,
+  ) => void
+  setActivationProgramCards: (cards: (Card | null)[] | null) => void
   reset: () => void
 }
 
@@ -79,7 +103,8 @@ const INITIAL: Pick<
   | 'rooms' | 'lobbyPlayers' | 'isHost' | 'roomName' | 'requiredPlayers'
   | 'phase' | 'robots' | 'hand' | 'registers' | 'lockedCards'
   | 'lastEvents' | 'roundEvents' | 'showRoundResult' | 'winner' | 'dealTime'
-  | 'gamePaused' | 'programmingSecondsRemaining' | 'pendingRegisters'
+  | 'gamePaused' | 'programmingSecondsRemaining' | 'pendingRegisters' | 'playbackHighlight'
+  | 'activationProgramCards'
 > = {
   connected: false,
   playerId: null,
@@ -102,6 +127,8 @@ const INITIAL: Pick<
   gamePaused: false,
   programmingSecondsRemaining: null,
   pendingRegisters: [],
+  playbackHighlight: null,
+  activationProgramCards: null,
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -128,7 +155,7 @@ export const useGameStore = create<GameState>((set) => ({
     const dealTime =
       rem != null
         ? Date.now() - (PROGRAMMING_TIMEOUT_SEC - rem) * 1000
-        : Date.now()
+        : null
     return set({
       hand,
       lockedCards,
@@ -138,6 +165,8 @@ export const useGameStore = create<GameState>((set) => ({
       programmingSecondsRemaining: rem,
       roundEvents: [],
       showRoundResult: false,
+      playbackHighlight: null,
+      activationProgramCards: null,
     })
   },
   setRegister: (slot, card) =>
@@ -147,6 +176,15 @@ export const useGameStore = create<GameState>((set) => ({
       const registers = [...s.registers]
       registers[slot] = card
       return { registers }
+    }),
+  setRegistersFromProgram: (cards) =>
+    set(() =>
+      cards.length === 5 ? { registers: [...cards] as (Card | null)[] } : {},
+    ),
+  setProgrammingTimer: (programmingSecondsRemaining) =>
+    set({
+      programmingSecondsRemaining,
+      dealTime: Date.now() - (PROGRAMMING_TIMEOUT_SEC - programmingSecondsRemaining) * 1000,
     }),
   clearRegisters: () =>
     set((s) => ({ registers: buildRegistersFromLocked(s.lockedCards) })),
@@ -163,10 +201,12 @@ export const useGameStore = create<GameState>((set) => ({
       lockedCards,
       gamePaused: paused ?? false,
       programmingSecondsRemaining: programmingSecondsRemaining ?? null,
-      ...(programmingSecondsRemaining != null && phase === 'programming'
-        ? {
-            dealTime: Date.now() - (PROGRAMMING_TIMEOUT_SEC - programmingSecondsRemaining) * 1000,
-          }
+      ...(phase === 'programming'
+        ? programmingSecondsRemaining != null
+          ? {
+              dealTime: Date.now() - (PROGRAMMING_TIMEOUT_SEC - programmingSecondsRemaining) * 1000,
+            }
+          : { dealTime: null }
         : {}),
     }),
   setGamePaused: (paused, programmingSecondsRemaining) =>
@@ -188,5 +228,7 @@ export const useGameStore = create<GameState>((set) => ({
     })
     return result
   },
+  setPlaybackHighlight: (playbackHighlight) => set({ playbackHighlight }),
+  setActivationProgramCards: (activationProgramCards) => set({ activationProgramCards }),
   reset: () => set(INITIAL),
 }))

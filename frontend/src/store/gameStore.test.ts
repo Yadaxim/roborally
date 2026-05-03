@@ -69,6 +69,8 @@ describe('setDeal', () => {
     const s = useGameStore.getState()
     expect(s.hand).toEqual([card])
     expect(s.registers).toEqual([null, null, null, null, null])
+    expect(s.dealTime).toBeNull()
+    expect(s.programmingSecondsRemaining).toBeNull()
   })
 
   it('pre-populates locked register slots with retained cards', () => {

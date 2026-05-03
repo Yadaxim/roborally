@@ -20,7 +20,14 @@ function EventLine({ event }: { event: ActivationEvent }) {
   if (event.type === 'checkpoint') {
     return (
       <div className="text-xs text-yellow-400 truncate">
-        {event.robot_id} flag {event.checkpoint_num}
+        {event.robot_id} checkpoint {event.checkpoint_num}
+      </div>
+    )
+  }
+  if (event.type === 'laser') {
+    return (
+      <div className="text-xs text-rose-400 truncate">
+        {event.robot_id ? `${event.robot_id} laser hit` : 'Laser'}
       </div>
     )
   }
@@ -30,10 +37,14 @@ function EventLine({ event }: { event: ActivationEvent }) {
 export default function PlayerPanel() {
   const robots = useGameStore(s => s.robots)
   const playerId = useGameStore(s => s.playerId)
-  const lastEvents = useGameStore(s => s.lastEvents)
+  const roundEvents = useGameStore(s => s.roundEvents)
 
-  const significant = lastEvents.filter(
-    e => e.type === 'damage' || e.type === 'destroy' || e.type === 'checkpoint'
+  const significant = roundEvents.filter(
+    e =>
+      e.type === 'damage'
+      || e.type === 'destroy'
+      || e.type === 'checkpoint'
+      || e.type === 'laser',
   )
 
   return (
@@ -97,7 +108,7 @@ export default function PlayerPanel() {
       {/* Recent event log */}
       {significant.length > 0 && (
         <div className="border-t border-gray-700 p-2 flex flex-col gap-0.5 max-h-20 overflow-y-auto">
-          {significant.slice(-5).map((e, i) => (
+          {significant.slice(-12).map((e, i) => (
             <EventLine key={i} event={e} />
           ))}
         </div>

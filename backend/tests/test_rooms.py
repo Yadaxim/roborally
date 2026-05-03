@@ -115,21 +115,23 @@ class TestRoomActivation:
         hand = self.room.get_hand("p1")
         self.room.submit_registers("p1", hand[:5])
 
-    def test_run_next_register_returns_events(self):
-        events = self.room.run_next_register()
+    def test_run_next_activation_substep_returns_tuple(self):
+        _reg, key, idx, events = self.room.run_next_activation_substep()
         assert isinstance(events, list)
+        assert isinstance(key, str)
+        assert 1 <= idx <= 8
 
     def test_run_all_registers_resets_to_programming(self):
-        for _ in range(5):
-            self.room.run_next_register()
+        for _ in range(5 * 8):
+            self.room.run_next_activation_substep()
         assert self.room.engine.phase == GamePhase.PROGRAMMING
 
     def test_run_register_outside_activation_raises(self):
         # exhaust activation first
-        for _ in range(5):
-            self.room.run_next_register()
+        for _ in range(5 * 8):
+            self.room.run_next_activation_substep()
         with pytest.raises(RoomError):
-            self.room.run_next_register()
+            self.room.run_next_activation_substep()
 
 
 class TestRoomReconnect:

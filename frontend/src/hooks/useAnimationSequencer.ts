@@ -1,8 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
+import type { PendingRegister } from '../types/game'
 import { useGameStore } from '../store/gameStore'
+import { flushDeferredActivationMessages } from '../ws/client'
 
-const STEP_MS = 500      // delay between each move/rotate event
-const REGISTER_PAUSE_MS = 800  // pause after each register finishes
+const MOVE_ROTATE_MS = 420
+const OTHER_MS = 380
+const REGISTER_PAUSE_MS = 650
 
 function delay(ms: number) {
   return new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -14,45 +17,90 @@ async function waitUnpaused() {
   }
 }
 
+/** Only one drain runs at a time — avoids skipped batches (Strict Mode / overlapping playNext). */
+let activeDrain: Promise<void> | null = null
+
+/**
+ * Single consumer for `pendingRegisters`: processes each activation **sub-step** in order.
+ */
 export function useAnimationSequencer() {
-  const playing = useRef(false)
-  const pendingLength = useGameStore(s => s.pendingRegisters.length)
-
   useEffect(() => {
-    if (!playing.current && pendingLength > 0) playNext()
-  }, [pendingLength])
+    const cancelled = { current: false }
 
-  async function playNext() {
-    playing.current = true
-    const store = useGameStore.getState()
-    const msg = store.dequeueRegister()
-    if (!msg) { playing.current = false; return }
+    async function playOneSubstep(msg: PendingRegister) {
+      const slot = msg.register_num - 1
+      const s0 = useGameStore.getState()
+      const program = s0.activationProgramCards ?? s0.registers
+      s0.setPlaybackHighlight({
+        registerNum: msg.register_num,
+        card: program[slot] ?? null,
+        substepId: msg.substep_id,
+        substepIndex: msg.substep_index,
+        substepTotal: msg.substep_total,
+      })
 
-    await waitUnpaused()
-
-    for (const ev of msg.events) {
       await waitUnpaused()
-      if (ev.type === 'move' && ev.to) {
-        store.updateRobot(ev.robot_id, { x: ev.to[0], y: ev.to[1] })
-        await delay(STEP_MS)
-      } else if (ev.type === 'rotate' && ev.to_dir) {
-        store.updateRobot(ev.robot_id, { facing: ev.to_dir })
-        await delay(STEP_MS)
-      } else if (ev.type === 'destroy') {
-        store.updateRobot(ev.robot_id, { is_alive: false })
+
+      for (const ev of msg.events) {
+        if (cancelled.current) return
+        await waitUnpaused()
+        const store = useGameStore.getState()
+        if (ev.type === 'move' && ev.to) {
+          store.updateRobot(ev.robot_id, { x: ev.to[0], y: ev.to[1] })
+          await delay(MOVE_ROTATE_MS)
+        } else if (ev.type === 'rotate' && ev.to_dir) {
+          store.updateRobot(ev.robot_id, { facing: ev.to_dir })
+          await delay(MOVE_ROTATE_MS)
+        } else if (ev.type === 'destroy') {
+          store.updateRobot(ev.robot_id, { is_alive: false })
+          await delay(OTHER_MS)
+        } else if (ev.type === 'laser') {
+          await delay(OTHER_MS)
+        } else if (ev.type === 'checkpoint') {
+          await delay(OTHER_MS)
+        }
       }
-      // damage / laser / checkpoint have no 3D visual yet — handled by final setRobots
+
+      const s1 = useGameStore.getState()
+      s1.setRobots(msg.robots)
+      s1.setLastEvents(msg.events)
+      s1.appendRoundEvents(msg.events)
+
+      await waitUnpaused()
+      if (msg.substep_index === msg.substep_total) {
+        await delay(REGISTER_PAUSE_MS)
+      }
     }
 
-    // Snap to authoritative final state (covers conveyors, push panels, damage totals)
-    store.setRobots(msg.robots)
-    store.setLastEvents(msg.events)
-    store.appendRoundEvents(msg.events)
+    async function drainLoop() {
+      while (!cancelled.current && useGameStore.getState().pendingRegisters.length > 0) {
+        const msg = useGameStore.getState().dequeueRegister()
+        if (!msg) break
+        await playOneSubstep(msg)
+      }
+      if (!cancelled.current) {
+        useGameStore.getState().setPlaybackHighlight(null)
+        flushDeferredActivationMessages()
+      }
+    }
 
-    await waitUnpaused()
-    await delay(REGISTER_PAUSE_MS)
+    function kickDrain() {
+      if (cancelled.current || activeDrain) return
+      if (useGameStore.getState().pendingRegisters.length === 0) return
+      activeDrain = drainLoop().finally(() => {
+        activeDrain = null
+        if (!cancelled.current && useGameStore.getState().pendingRegisters.length > 0) {
+          kickDrain()
+        }
+      })
+    }
 
-    playing.current = false
-    if (useGameStore.getState().pendingRegisters.length > 0) playNext()
-  }
+    const unsub = useGameStore.subscribe(kickDrain)
+    kickDrain()
+
+    return () => {
+      cancelled.current = true
+      unsub()
+    }
+  }, [])
 }

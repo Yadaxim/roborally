@@ -11,6 +11,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from game.board import Board
+from game.activation import REGISTER_SUBSTEPS
+from game.cards import Card
 from game.engine import GamePhase
 from game.robot import Robot
 from server.rooms import Room, RoomError
@@ -25,6 +27,8 @@ from server.schemas import (
     CmdSubmitRegisters,
     EventOut,
     MsgDealHand,
+    MsgProgrammingTimer,
+    MsgYourProgram,
     MsgGamePaused,
     MsgError,
     MsgGameOver,
@@ -68,6 +72,72 @@ _programming_frozen_remaining: dict[str, float] = {}
 _browse_waiters: dict[int, WebSocket] = {}
 
 PROGRAMMING_TIMEOUT = 30  # seconds
+
+
+def _random_program_from_hand(room: Room, player_id: str) -> list[Card] | None:
+    """Locked registers use retained cards; other registers get random cards from the remaining hand."""
+    hand = list(room.get_hand(player_id))
+    eng = room.engine
+    robot = eng.robots[player_id]
+    locked_regs = sorted(robot.locked_registers)
+    locked_map = eng.locked_cards.get(player_id, {})
+    program: list[Card | None] = [None] * 5
+
+    for reg_num in locked_regs:
+        if reg_num not in locked_map:
+            return None
+        c = locked_map[reg_num]
+        program[reg_num - 1] = c
+        try:
+            idx = next(i for i, h in enumerate(hand) if h == c)
+        except StopIteration:
+            return None
+        hand.pop(idx)
+
+    open_slots = [i for i in range(5) if program[i] is None]
+    need = len(open_slots)
+    if len(hand) < need:
+        return None
+    random.shuffle(hand)
+    pool = hand[:need]
+    for slot, card in zip(open_slots, pool):
+        program[slot] = card
+    return [program[i] for i in range(5)]  # type: ignore[misc]
+
+
+async def _send_your_program_to_all(room_id: str) -> None:
+    room = _rooms.get(room_id)
+    if room is None:
+        return
+    for _pid, ws in list(_connections.get(room_id, {}).items()):
+        regs = room.engine.registers.get(_pid)
+        if regs is None:
+            continue
+        try:
+            await _send(ws, MsgYourProgram(cards=[CardOut.from_card(c) for c in regs]))
+        except Exception:
+            pass
+
+
+async def _maybe_start_programming_timer(room_id: str) -> None:
+    """Start the 30s countdown once the first player has committed (some but not all players done)."""
+    room = _rooms.get(room_id)
+    if room is None or room.engine.phase != GamePhase.PROGRAMMING:
+        return
+    if room_id in _programming_deadline_mono:
+        return
+    regs = room.engine.registers
+    if not any(v is not None for v in regs.values()):
+        return
+    if all(v is not None for v in regs.values()):
+        return
+    _programming_deadline_mono[room_id] = time.monotonic() + PROGRAMMING_TIMEOUT
+    rem_init = max(0.0, _programming_deadline_mono[room_id] - time.monotonic())
+    await _broadcast(room_id, MsgProgrammingTimer(programming_seconds_remaining=rem_init))
+    existing = _timers.get(room_id)
+    if existing is not None and not existing.done():
+        return
+    _timers[room_id] = asyncio.create_task(_programming_timer(room_id))
 
 
 def _load_board(board_name: str) -> Board:
@@ -172,23 +242,29 @@ def _programming_seconds_remaining(room_id: str) -> float | None:
 
 
 async def _run_activation(room_id: str) -> None:
-    """Drive all 5 registers, broadcasting events after each one."""
+    """Drive activation one rules sub-step at a time (8 substeps × 5 registers)."""
     room = _rooms[room_id]
-    for reg in range(1, 6):
+    while room.engine.phase == GamePhase.ACTIVATION:
         await _wait_unpaused(room_id)
         room = _rooms.get(room_id)
-        if room is None or room.engine.phase != GamePhase.ACTIVATION:
+        if room is None:
             break
-        events = room.run_next_register()
+        reg_num, sub_key, sub_idx, raw_events = room.run_next_activation_substep()
         robots = [_robot_out(r) for r in room.engine.robots.values()]
         msg = MsgRegisterEvents(
-            register_num=reg,
-            events=[EventOut.from_event(e) for e in events],
+            register_num=reg_num,
+            substep_id=sub_key,
+            substep_index=sub_idx,
+            substep_total=len(REGISTER_SUBSTEPS),
+            events=[EventOut.from_event(e) for e in raw_events],
             robots=robots,
         )
         await _broadcast(room_id, msg)
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.08)
 
+    room = _rooms.get(room_id)
+    if room is None:
+        return
     if room.engine.phase == GamePhase.GAME_OVER:
         await _broadcast(room_id, MsgGameOver(winner=room.engine.winner))
         return
@@ -224,13 +300,16 @@ async def _programming_timer(room_id: str) -> None:
         if submitted is None:
             hand = room.get_hand(pid)
             if len(hand) >= 5:
-                try:
-                    room.submit_registers(pid, hand[:5])
-                except RoomError:
-                    pass
+                prog = _random_program_from_hand(room, pid)
+                if prog is not None:
+                    try:
+                        room.submit_registers(pid, prog)
+                    except RoomError:
+                        pass
     _programming_deadline_mono.pop(room_id, None)
     _programming_frozen_remaining.pop(room_id, None)
     if room.engine.phase == GamePhase.ACTIVATION:
+        await _send_your_program_to_all(room_id)
         await _broadcast(room_id, MsgPhaseChange(phase="activation"))
         asyncio.create_task(_run_activation(room_id))
 
@@ -264,8 +343,6 @@ async def _deal_hands(room_id: str) -> None:
     room.paused = False
     await _broadcast(room_id, MsgPhaseChange(phase="programming"))
     _cancel_timer(room_id)
-    _programming_deadline_mono[room_id] = time.monotonic() + PROGRAMMING_TIMEOUT
-    rem_init = max(0.0, _programming_deadline_mono[room_id] - time.monotonic())
     conns = _connections.get(room_id, {})
     for pid, ws in list(conns.items()):
         hand = room.get_hand(pid)
@@ -275,11 +352,10 @@ async def _deal_hands(room_id: str) -> None:
             await _send(ws, MsgDealHand(
                 hand=[CardOut.from_card(c) for c in hand],
                 locked_cards=locked_out,
-                programming_seconds_remaining=rem_init,
+                programming_seconds_remaining=None,
             ))
         except Exception:
             pass
-    _timers[room_id] = asyncio.create_task(_programming_timer(room_id))
 
 
 async def _start_game(room_id: str) -> None:
@@ -464,8 +540,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     continue
                 if room.engine.phase == GamePhase.ACTIVATION:
                     _cancel_timer(room_id)
+                    await _send_your_program_to_all(room_id)
                     await _broadcast(room_id, MsgPhaseChange(phase="activation"))
                     asyncio.create_task(_run_activation(room_id))
+                else:
+                    await _maybe_start_programming_timer(room_id)
 
             elif msg_type == "set_paused":
                 cmd_p = CmdSetPaused(**data)

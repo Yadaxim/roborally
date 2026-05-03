@@ -73,9 +73,9 @@ class Room:
         except (RuntimeError, ValueError) as e:
             raise RoomError(str(e)) from e
 
-    def run_next_register(self) -> list[ActivationEvent]:
+    def run_next_activation_substep(self) -> tuple[int, str, int, list[ActivationEvent]]:
         try:
-            return self.engine.execute_next_register()
+            return self.engine.execute_next_substep()
         except RuntimeError as e:
             raise RoomError(str(e)) from e
 

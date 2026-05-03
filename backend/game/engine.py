@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from game.activation import ActivationEvent, execute_register
+from game.activation import ActivationEvent, REGISTER_SUBSTEPS, run_register_substep
 from game.board import Board, Direction
 from game.cards import Card, build_deck, deal
 from game.robot import Robot
@@ -28,6 +28,7 @@ class GameEngine:
     winner: str | None = None
     _deck: list[Card] = field(default_factory=build_deck)
     _start_index: int = 0
+    _activation_substep: int = 1  # 1–8 within current_register
 
     def add_player(self, player_id: str) -> None:
         if self.phase != GamePhase.LOBBY:
@@ -80,40 +81,57 @@ class GameEngine:
         if all(v is not None for v in self.registers.values()):
             self.phase = GamePhase.ACTIVATION
             self.current_register = 1
+            self._activation_substep = 1
 
-    def execute_next_register(self) -> list[ActivationEvent]:
+    def execute_next_substep(self) -> tuple[int, str, int, list[ActivationEvent]]:
+        """One rules sub-step. Returns (register_num, substep_key, substep_index 1–8, events)."""
         if self.phase != GamePhase.ACTIVATION:
             raise RuntimeError("Not in activation phase")
-        reg = self.current_register
+        reg_num = self.current_register
+        step = self._activation_substep
         card_assignments: dict[str, Card] = {}
         for pid, regs in self.registers.items():
-            if regs is not None and len(regs) >= reg:
-                card_assignments[pid] = regs[reg - 1]
+            if regs is not None and len(regs) >= reg_num:
+                card_assignments[pid] = regs[reg_num - 1]
         robots = list(self.robots.values())
-        events = execute_register(self.board, robots, card_assignments, reg)
+
+        sub_key, events = run_register_substep(
+            self.board, robots, card_assignments, reg_num, step,
+        )
+
         self._check_win_condition()
         if self.phase == GamePhase.GAME_OVER:
-            return events
-        self.current_register += 1
-        if self.current_register > 5:
-            for pid, robot in self.robots.items():
-                locked_regs = robot.locked_registers
-                regs = self.registers.get(pid)
-                if locked_regs and regs is not None:
-                    self.locked_cards[pid] = {
-                        reg: regs[reg - 1] for reg in locked_regs if len(regs) >= reg
-                    }
-                else:
-                    self.locked_cards[pid] = {}
-            for robot in self.robots.values():
-                if not robot._alive:
-                    robot.respawn()
-            self.phase = GamePhase.PROGRAMMING
-            self.current_register = 1
-            for pid in self.registers:
-                self.registers[pid] = None
-            self._deal_hands()
-        return events
+            return (reg_num, sub_key, step, events)
+
+        if step == len(REGISTER_SUBSTEPS):
+            self._activation_substep = 1
+            self.current_register += 1
+            if self.current_register > 5:
+                self._end_activation_round()
+        else:
+            self._activation_substep += 1
+
+        return (reg_num, sub_key, step, events)
+
+    def _end_activation_round(self) -> None:
+        for pid, robot in self.robots.items():
+            locked_regs = robot.locked_registers
+            regs = self.registers.get(pid)
+            if locked_regs and regs is not None:
+                self.locked_cards[pid] = {
+                    reg: regs[reg - 1] for reg in locked_regs if len(regs) >= reg
+                }
+            else:
+                self.locked_cards[pid] = {}
+        for robot in self.robots.values():
+            if not robot._alive:
+                robot.respawn()
+        self.phase = GamePhase.PROGRAMMING
+        self.current_register = 1
+        self._activation_substep = 1
+        for pid in self.registers:
+            self.registers[pid] = None
+        self._deal_hands()
 
     def _check_win_condition(self) -> None:
         total_checkpoints = len(self.board.checkpoints)
@@ -122,6 +140,5 @@ class GameEngine:
                 self.winner = pid
                 self.phase = GamePhase.GAME_OVER
                 return
-        # Only end from elimination when every robot is permanently out of lives
         if self.robots and all(r.lives <= 0 for r in self.robots.values()):
             self.phase = GamePhase.GAME_OVER

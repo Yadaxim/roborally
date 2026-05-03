@@ -41,6 +41,9 @@ export interface ActivationEvent {
 
 export interface PendingRegister {
   register_num: number
+  substep_id: string
+  substep_index: number
+  substep_total: number
   events: ActivationEvent[]
   robots: Robot[]
 }
@@ -68,10 +71,20 @@ export type ServerMessage =
   | { type: 'player_ready'; player_id: string; is_ready: boolean }
   | { type: 'game_started'; robots: Robot[] }
   | { type: 'deal_hand'; hand: Card[]; locked_cards: Record<number, Card>; programming_seconds_remaining?: number | null }
+  | { type: 'programming_timer'; programming_seconds_remaining: number }
+  | { type: 'your_program'; cards: Card[] }
   | { type: 'phase_change'; phase: Phase }
   | { type: 'state_sync'; phase: Phase; robots: Robot[]; hand: Card[]; locked_cards: Record<number, Card>; paused?: boolean; programming_seconds_remaining?: number | null }
   | { type: 'game_paused'; paused: boolean; programming_seconds_remaining?: number | null }
-  | { type: 'register_events'; register_num: number; events: ActivationEvent[]; robots: Robot[] }
+  | {
+      type: 'register_events'
+      register_num: number
+      substep_id: string
+      substep_index: number
+      substep_total: number
+      events: ActivationEvent[]
+      robots: Robot[]
+    }
   | { type: 'game_over'; winner: string | null }
   | { type: 'error'; message: string }
 

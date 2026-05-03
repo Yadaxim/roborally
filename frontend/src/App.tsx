@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useGameStore } from './store/gameStore'
+import { proposePlayerName, proposeRoomName } from './utils/proposedNames'
 import { connect, send, disconnect } from './ws/client'
 import type { ClientMessage } from './types/game'
 import { useAnimationSequencer } from './hooks/useAnimationSequencer'
@@ -7,6 +8,7 @@ import Scene from './components/game/Scene'
 import ProgrammingPanel from './components/ui/ProgrammingPanel'
 import PlayerPanel from './components/ui/PlayerPanel'
 import RoundResultOverlay from './components/ui/RoundResultOverlay'
+import ActivationPlaybackHud from './components/ui/ActivationPlaybackHud'
 import './index.css'
 
 const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#e9c46a', '#f4a261']
@@ -14,10 +16,23 @@ const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#e9c46a', '#f4a261']
 export default function App() {
   const { phase, connected, playerId, roomId, roomName, isHost, requiredPlayers, rooms, lobbyPlayers, robots, winner, gamePaused } =
     useGameStore()
-  const [playerName, setPlayerName] = useState('')
+  const [playerName, setPlayerName] = useState(() => proposePlayerName())
   const [createRoomName, setCreateRoomName] = useState('')
   const [createRequired, setCreateRequired] = useState(2)
   useAnimationSequencer()
+
+  /** Room title avoids lobby name clashes; player name only refills when cleared (quirky + random suffix). */
+  useEffect(() => {
+    if (!connected || roomId) return
+    setPlayerName(prev => (prev.trim() ? prev : proposePlayerName()))
+    setCreateRoomName(prev => {
+      const trimmed = prev.trim()
+      const takenRoomNames = new Set(rooms.map(r => r.room_name.toLowerCase()))
+      if (!trimmed) return proposeRoomName(rooms)
+      if (!takenRoomNames.has(trimmed.toLowerCase())) return prev
+      return proposeRoomName(rooms)
+    })
+  }, [connected, roomId, rooms])
 
   const myLobbyPlayer = lobbyPlayers.find(p => p.player_id === playerId)
   const isReady = myLobbyPlayer?.is_ready ?? false
@@ -294,6 +309,7 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
         <div className="relative flex-1">
           <Scene />
+          <ActivationPlaybackHud />
         </div>
         <PlayerPanel />
       </div>

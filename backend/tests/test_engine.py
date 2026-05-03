@@ -126,11 +126,13 @@ class TestActivationPhase:
         self.engine.hands["p1"] = cards_5 + list(self.engine.hands["p1"])[:4]
         self.engine.submit_registers("p1", cards_5)
 
-    def test_execute_next_register_runs_one_register(self):
+    def test_execute_next_substep_advances_after_one_register(self):
         hand = self.engine.hands["p1"]
         self.engine.submit_registers("p1", hand[:5])
-        events = self.engine.execute_next_register()
-        assert isinstance(events, list)
+        for _ in range(8):
+            reg_num, key, idx, evs = self.engine.execute_next_substep()
+            assert isinstance(evs, list)
+            assert 1 <= idx <= 8
         assert self.engine.current_register == 2
 
     def _safe_registers(self) -> list[Card]:
@@ -141,18 +143,18 @@ class TestActivationPhase:
 
     def test_execute_all_registers_returns_to_programming(self):
         self.engine.submit_registers("p1", self._safe_registers())
-        for _ in range(5):
-            self.engine.execute_next_register()
+        for _ in range(5 * 8):
+            self.engine.execute_next_substep()
         assert self.engine.phase == GamePhase.PROGRAMMING
 
-    def test_execute_register_outside_activation_raises(self):
+    def test_execute_substep_outside_activation_raises(self):
         with pytest.raises(RuntimeError):
-            self.engine.execute_next_register()
+            self.engine.execute_next_substep()
 
     def test_new_round_deals_fresh_hands(self):
         self.engine.submit_registers("p1", self._safe_registers())
-        for _ in range(5):
-            self.engine.execute_next_register()
+        for _ in range(5 * 8):
+            self.engine.execute_next_substep()
         hand2 = self.engine.hands["p1"]
         assert hand2 is not None
         assert len(hand2) == 9
@@ -172,9 +174,9 @@ class TestLockedRegisters:
     def _run_round(self, cards_5: list[Card]) -> None:
         self.engine.hands["p1"] = cards_5 + list(self.engine.hands["p1"])[:4]
         self.engine.submit_registers("p1", cards_5)
-        for _ in range(5):
+        for _ in range(5 * 8):
             if self.engine.phase == GamePhase.ACTIVATION:
-                self.engine.execute_next_register()
+                self.engine.execute_next_substep()
 
     def test_no_locked_cards_initially(self):
         assert self.engine.locked_cards.get("p1", {}) == {}
@@ -271,7 +273,8 @@ class TestWinCondition:
         engine.submit_registers("p1", hand[:5])
         # Find a MOVE_1 in the submitted registers and force it to first slot
         engine.registers["p1"] = [card(CardType.MOVE_1)] + list(hand[1:5])
-        engine.execute_next_register()
+        for _ in range(8):
+            engine.execute_next_substep()
         assert engine.phase == GamePhase.GAME_OVER
 
     def test_all_robots_eliminated_causes_game_over(self):

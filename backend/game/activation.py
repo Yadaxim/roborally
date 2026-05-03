@@ -23,6 +23,19 @@ class ActivationEvent:
     checkpoint_num: int = 0
 
 
+# Keys for WS / HUD (rules order within one register).
+REGISTER_SUBSTEPS: tuple[str, ...] = (
+    "program_cards",
+    "conveyors_express",
+    "conveyors_normal",
+    "pushers",
+    "gears",
+    "crushers",
+    "lasers",
+    "checkpoints",
+)
+
+
 def _step_robot(
     board: Board,
     robot: Robot,
@@ -33,7 +46,6 @@ def _step_robot(
     """Move robot one step in direction, pushing any occupant. Emits events."""
     from_pos = (robot.x, robot.y)
 
-    # Try to push the robot occupying the destination
     dest = board.neighbour(robot.x, robot.y, direction)
     if dest is not None:
         occupant_map = {(r.x, r.y): r for r in all_robots if r.is_alive and r is not robot}
@@ -49,7 +61,6 @@ def _step_robot(
                     to=(occupant.x, occupant.y) if occupant.is_alive else None,
                 ))
 
-    # Now move this robot
     if not board.can_move(robot.x, robot.y, direction):
         nb = board.neighbour(robot.x, robot.y, direction)
         if nb is None:
@@ -100,89 +111,137 @@ def _apply_card(
         ))
 
 
-def execute_register(
+def _snapshot_xy(robots: list[Robot]) -> dict[str, tuple[int, int]]:
+    return {r.id: (r.x, r.y) for r in robots if r.is_alive}
+
+
+def _emit_motion_since_snapshot(
+    before_xy: dict[str, tuple[int, int]],
+    robots: list[Robot],
+    events: list[ActivationEvent],
+) -> None:
+    for r in robots:
+        if r.id not in before_xy:
+            continue
+        prev = before_xy[r.id]
+        if not r.is_alive:
+            events.append(ActivationEvent(type="destroy", robot_id=r.id, from_pos=prev))
+        elif (r.x, r.y) != prev:
+            events.append(ActivationEvent(type="move", robot_id=r.id, from_pos=prev, to=(r.x, r.y)))
+
+
+def flatten_register_batches(
+    batches: list[tuple[str, list[ActivationEvent]]],
+) -> list[ActivationEvent]:
+    return [ev for _, lst in batches for ev in lst]
+
+
+def run_register_substep(
     board: Board,
     robots: list[Robot],
     card_assignments: dict[str, Card],
     register_num: int,
-) -> list[ActivationEvent]:
-    """Execute all 8 sub-steps for one register. Returns animation events."""
+    substep: int,
+) -> tuple[str, list[ActivationEvent]]:
+    """Execute exactly one rules sub-step (1–8) for the current register."""
+    if substep < 1 or substep > len(REGISTER_SUBSTEPS):
+        raise ValueError(f"substep must be 1–{len(REGISTER_SUBSTEPS)}")
+    key = REGISTER_SUBSTEPS[substep - 1]
+
+    if substep == 1:
+        events: list[ActivationEvent] = []
+        alive = [r for r in robots if r.is_alive]
+        ordered = sorted(
+            [(r, card_assignments[r.id]) for r in alive if r.id in card_assignments],
+            key=lambda x: x[1].priority,
+            reverse=True,
+        )
+        for robot, card in ordered:
+            if robot.is_alive:
+                _apply_card(board, robot, card, robots, events)
+        return (key, events)
+
+    if substep == 2:
+        events: list[ActivationEvent] = []
+        alive = [r for r in robots if r.is_alive]
+        apply_conveyors(board, alive, express_only=True, events=events)
+        return (key, events)
+
+    if substep == 3:
+        events: list[ActivationEvent] = []
+        alive = [r for r in robots if r.is_alive]
+        apply_conveyors(board, alive, express_only=False, events=events)
+        return (key, events)
+
+    if substep == 4:
+        events: list[ActivationEvent] = []
+        alive = [r for r in robots if r.is_alive]
+        before_xy = _snapshot_xy(alive)
+        for y in range(board.height):
+            for x in range(board.width):
+                tile = board.tile_at(x, y)
+                if tile.type == TileType.PUSHER and register_num in tile.active_registers:
+                    push_robots(board, alive, x, y, tile.direction)
+        _emit_motion_since_snapshot(before_xy, robots, events)
+        return (key, events)
+
+    if substep == 5:
+        events: list[ActivationEvent] = []
+        alive = [r for r in robots if r.is_alive]
+        for robot in alive:
+            tile = board.tile_at(robot.x, robot.y)
+            if tile.type == TileType.GEAR:
+                old_dir = robot.facing
+                if tile.rotation == "clockwise":
+                    robot.rotate_right()
+                else:
+                    robot.rotate_left()
+                events.append(ActivationEvent(
+                    type="rotate", robot_id=robot.id,
+                    from_dir=old_dir, to_dir=robot.facing,
+                ))
+        return (key, events)
+
+    if substep == 6:
+        events: list[ActivationEvent] = []
+        alive = [r for r in robots if r.is_alive]
+        for y in range(board.height):
+            for x in range(board.width):
+                tile = board.tile_at(x, y)
+                if tile.type == TileType.CRUSHER and register_num in tile.active_registers:
+                    for robot in alive:
+                        if robot.x == x and robot.y == y:
+                            robot._destroy()
+                            events.append(ActivationEvent(type="destroy", robot_id=robot.id))
+        return (key, events)
+
+    if substep == 7:
+        events: list[ActivationEvent] = []
+        alive = [r for r in robots if r.is_alive]
+        for y in range(board.height):
+            for x in range(board.width):
+                tile = board.tile_at(x, y)
+                if tile.type == TileType.LASER_EMITTER and tile.direction:
+                    result = fire_laser(board, alive, x, y, tile.direction, tile.laser_count)
+                    if result.path:
+                        events.append(ActivationEvent(
+                            type="laser", laser_path=result.path,
+                            robot_id=result.hit_robot_id or "",
+                            amount=tile.laser_count if result.hit_robot_id else 0,
+                        ))
+
+        for robot in alive:
+            others = [r for r in alive if r.id != robot.id]
+            result = fire_laser(board, others, robot.x, robot.y, robot.facing, 1)
+            if result.hit_robot_id:
+                events.append(ActivationEvent(
+                    type="laser", laser_path=result.path,
+                    robot_id=result.hit_robot_id, amount=1,
+                ))
+        return (key, events)
+
+    # substep == 8
     events: list[ActivationEvent] = []
-
-    # --- Sub-step 1: Cards in priority order ---
-    alive = [r for r in robots if r.is_alive]
-    ordered = sorted(
-        [(r, card_assignments[r.id]) for r in alive if r.id in card_assignments],
-        key=lambda x: x[1].priority,
-        reverse=True,
-    )
-    for robot, card in ordered:
-        if robot.is_alive:
-            _apply_card(board, robot, card, robots, events)
-
-    # --- Sub-steps 2+3: Conveyors ---
-    alive = [r for r in robots if r.is_alive]
-    apply_conveyors(board, alive, express_only=True)
-    apply_conveyors(board, alive, express_only=False)
-
-    # --- Sub-step 4: Push panels ---
-    alive = [r for r in robots if r.is_alive]
-    for y in range(board.height):
-        for x in range(board.width):
-            tile = board.tile_at(x, y)
-            if tile.type == TileType.PUSHER and register_num in tile.active_registers:
-                push_robots(board, alive, x, y, tile.direction)
-
-    # --- Sub-step 5: Gears ---
-    alive = [r for r in robots if r.is_alive]
-    for robot in alive:
-        tile = board.tile_at(robot.x, robot.y)
-        if tile.type == TileType.GEAR:
-            old_dir = robot.facing
-            if tile.rotation == "clockwise":
-                robot.rotate_right()
-            else:
-                robot.rotate_left()
-            events.append(ActivationEvent(
-                type="rotate", robot_id=robot.id,
-                from_dir=old_dir, to_dir=robot.facing,
-            ))
-
-    # --- Sub-step 6: Crushers ---
-    alive = [r for r in robots if r.is_alive]
-    for y in range(board.height):
-        for x in range(board.width):
-            tile = board.tile_at(x, y)
-            if tile.type == TileType.CRUSHER and register_num in tile.active_registers:
-                for robot in alive:
-                    if robot.x == x and robot.y == y:
-                        robot._destroy()
-                        events.append(ActivationEvent(type="destroy", robot_id=robot.id))
-
-    # --- Sub-step 7: Lasers ---
-    alive = [r for r in robots if r.is_alive]
-    for y in range(board.height):
-        for x in range(board.width):
-            tile = board.tile_at(x, y)
-            if tile.type == TileType.LASER_EMITTER and tile.direction:
-                result = fire_laser(board, alive, x, y, tile.direction, tile.laser_count)
-                if result.path:
-                    events.append(ActivationEvent(
-                        type="laser", laser_path=result.path,
-                        robot_id=result.hit_robot_id or "",
-                        amount=tile.laser_count if result.hit_robot_id else 0,
-                    ))
-
-    for robot in alive:
-        others = [r for r in alive if r.id != robot.id]
-        result = fire_laser(board, others, robot.x, robot.y, robot.facing, 1)
-        if result.hit_robot_id:
-            events.append(ActivationEvent(
-                type="laser", laser_path=result.path,
-                robot_id=result.hit_robot_id, amount=1,
-            ))
-
-    # --- Sub-step 8: Checkpoints ---
     alive = [r for r in robots if r.is_alive]
     for robot in alive:
         tile = board.tile_at(robot.x, robot.y)
@@ -190,11 +249,30 @@ def execute_register(
             if tile.checkpoint_num == robot.checkpoints_touched + 1:
                 robot.checkpoints_touched += 1
                 robot.update_archive(robot.x, robot.y)
+                robot.damage = max(0, robot.damage - 1)
                 events.append(ActivationEvent(
                     type="checkpoint", robot_id=robot.id,
                     checkpoint_num=tile.checkpoint_num,
                 ))
-        elif tile.type in (TileType.REPAIR, TileType.DOUBLE_REPAIR):
+        elif tile.type == TileType.REPAIR:
             robot.update_archive(robot.x, robot.y)
+            robot.damage = max(0, robot.damage - 1)
+        elif tile.type == TileType.DOUBLE_REPAIR:
+            robot.update_archive(robot.x, robot.y)
+            robot.damage = max(0, robot.damage - 2)
 
-    return events
+    return (key, events)
+
+
+def execute_register_flat(
+    board: Board,
+    robots: list[Robot],
+    card_assignments: dict[str, Card],
+    register_num: int,
+) -> list[ActivationEvent]:
+    """Run all 8 sub-steps and concatenate events (tests)."""
+    out: list[ActivationEvent] = []
+    for s in range(1, len(REGISTER_SUBSTEPS) + 1):
+        _, evs = run_register_substep(board, robots, card_assignments, register_num, s)
+        out.extend(evs)
+    return out

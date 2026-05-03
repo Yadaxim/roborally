@@ -119,6 +119,18 @@ class MsgDealHand(BaseModel):
     programming_seconds_remaining: float | None = None
 
 
+class MsgProgrammingTimer(BaseModel):
+    """30s deadline begins when the first player commits their program (rules)."""
+    type: Literal["programming_timer"] = "programming_timer"
+    programming_seconds_remaining: float
+
+
+class MsgYourProgram(BaseModel):
+    """Authoritative five cards for this client before activation (includes random fill)."""
+    type: Literal["your_program"] = "your_program"
+    cards: list[CardOut]
+
+
 class MsgPhaseChange(BaseModel):
     type: Literal["phase_change"] = "phase_change"
     phase: str
@@ -127,6 +139,9 @@ class MsgPhaseChange(BaseModel):
 class MsgRegisterEvents(BaseModel):
     type: Literal["register_events"] = "register_events"
     register_num: int
+    substep_id: str
+    substep_index: int
+    substep_total: int
     events: list[EventOut]
     robots: list[RobotOut]
 

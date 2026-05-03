@@ -17,7 +17,7 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 - ✅ Push chains — single push, chain push, blocked by wall
 - ✅ Laser tracing — ray cast, wall blocking, robot blocking (closer absorbs)
 - ✅ Conveyor logic — single step, express (2 steps), turning conveyors rotate robot
-- ✅ Full register activation — all 8 sub-steps in correct order
+- ✅ Full register activation — all 8 sub-steps in correct order; checkpoint/repair tiles heal damage when resolving flags / wrench sites (rules-aligned hand size)
 - ✅ Game state machine — lobby → programming → activation → game_over
 - ✅ Win condition — checkpoint sequencing, victory detection
 
@@ -25,7 +25,7 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 - ✅ FastAPI app + WebSocket endpoint
 - ✅ Room creation and joining (2–4 players)
 - ✅ Deal cards, accept register submissions, broadcast activation events
-- ✅ 30s programming timer with auto-submit
+- ✅ Programming phase — 30s countdown **starts when the first player submits** (multiplayer rules); incomplete registers at timeout filled with **random** cards from remaining hand; `your_program` message syncs authoritative cards before activation
 - ✅ Reconnection handling — state_sync on rejoin
 
 ### Board data
@@ -34,7 +34,7 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 
 ### Frontend scaffolding
 - ✅ Vite + React + TypeScript project skeleton
-- ✅ Vitest configured and running (9 store tests)
+- ✅ Vitest configured and running (store tests in `gameStore.test.ts`)
 - ✅ Tailwind CSS wired up
 - ✅ WebSocket client + Zustand store skeleton
 
@@ -54,9 +54,9 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 ### Card UI
 - ✅ Card component (type icon, priority number)
 - ✅ Hand display (dealt cards, used cards dimmed)
-- ✅ Register slots (drag-and-drop via dnd-kit, click to remove)
+- ✅ Register slots (drag-and-drop via dnd-kit; click or drag back to hand to clear slot)
 - ✅ Locked register display
-- ✅ Confirm button + programming timer countdown
+- ✅ Confirm button + programming timer (shows “—” until first lock-in, then countdown)
 
 ### Game UI
 - ✅ Lobby — join/create room, Enter key, disabled button until inputs filled, room/name shown after join
@@ -66,7 +66,8 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 - ✅ "Waiting for others…" shown after submitting registers (replaces Confirm button)
 
 ### Animation
-- ✅ Stepped register playback — register_events queued and played back move-by-move before snapping to authoritative state; smooth spring-physics robot movement
+- ✅ **Eight sub-step batches per register** — each rules phase (program cards, conveyors express/normal, pushers, gears, crushers, lasers, checkpoints) is a separate `register_events` message with `substep_id` / index; sequencer plays each batch before advancing
+- ✅ Smooth stepped playback — snap to authoritative `robots` state after every batch; spring-physics robot movement between moves
 
 ---
 
@@ -84,13 +85,12 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 ## GAMEPLAY
 
 - ✅ Pause button — host can pause/unpause the game; freezes the programming timer and delays activation until resumed
-
-- show next to the board the card and registry number that is been animated in that moment. 
-
+- ✅ **Activation HUD beside board** — during playback, shows current register (1–5), the local player’s programmed card for that register, and the **active rules sub-step** name + progress (e.g. Express conveyors 2/8)
 
 - ✅ Live camera angle slider (elevation + rotation) for isometric view tuning — panel bottom-left in isometric mode; orbit 0–360°, elevation 15–75°; smooth lerp to target
 
 - ⬜ Laser beam visual (red line flash + fade)
+
 - ⬜ Damage animation (robot flashes red)
 - ⬜ Destroy / reboot animation (robot sinks, reappears at archive)
 - ⬜ Conveyor belt scroll animation
@@ -122,8 +122,9 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 - ✅ Conveyor logic (17 tests: green/express movement, chaining, turning rotation, blocking)
 - ✅ Game state machine (21 tests: phases, hand dealing, register submission, win condition)
 - ✅ Lobby overhaul — room browser, create-room flow, roster panel, ready system, force start (24 new server tests)
+- ✅ Activation WebSocket protocol — `programming_timer`, `your_program`, per–sub-step `register_events` with `substep_id` / `substep_index` / `substep_total`
 
 
 ## BUGS
 
-
+- (none open)

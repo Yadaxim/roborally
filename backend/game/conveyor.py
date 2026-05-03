@@ -22,6 +22,7 @@ def apply_conveyors(
     board: Board,
     robots: list[Robot],
     express_only: bool,
+    events: list | None = None,
 ) -> None:
     """Move all robots that are currently on a conveyor tile one step.
 
@@ -33,7 +34,12 @@ def apply_conveyors(
         apply_conveyors(..., express_only=False)  # sub-step c
 
     Walls block the move; off-board or pit landing destroys the robot.
+
+    When ``events`` is provided, append move / rotate / destroy events for animation.
     """
+    if events is not None:
+        from game.activation import ActivationEvent
+
     robot_positions: dict[tuple[int, int], Robot] = {(r.x, r.y): r for r in robots}
 
     eligible: list[Robot] = []
@@ -56,12 +62,22 @@ def apply_conveyors(
         if not board.can_move(robot.x, robot.y, exit_dir):
             dest = board.neighbour(robot.x, robot.y, exit_dir)
             if dest is None:
+                fp = (robot.x, robot.y)
                 robot._destroy()
+                if events is not None:
+                    from game.activation import ActivationEvent
+
+                    events.append(ActivationEvent(type="destroy", robot_id=robot.id, from_pos=fp))
             continue
 
         dest = board.neighbour(robot.x, robot.y, exit_dir)
         if dest is None:
+            fp = (robot.x, robot.y)
             robot._destroy()
+            if events is not None:
+                from game.activation import ActivationEvent
+
+                events.append(ActivationEvent(type="destroy", robot_id=robot.id, from_pos=fp))
             continue
 
         # If destination is occupied and that robot is also blocked, stay
@@ -75,6 +91,9 @@ def apply_conveyors(
         entry_dir = stored_entry if stored_entry is not None else opposite(exit_dir)
         rotation = _conveyor_rotation(entry_dir, exit_dir)
 
+        from_pos = (robot.x, robot.y)
+        old_facing = robot.facing
+
         del robot_positions[(robot.x, robot.y)]
         robot.x, robot.y = dest
         robot_positions[(robot.x, robot.y)] = robot
@@ -84,7 +103,35 @@ def apply_conveyors(
         elif rotation == "left":
             robot.rotate_left()
 
+        if events is not None:
+            if from_pos != (robot.x, robot.y):
+                events.append(
+                    ActivationEvent(
+                        type="move",
+                        robot_id=robot.id,
+                        from_pos=from_pos,
+                        to=(robot.x, robot.y),
+                    ),
+                )
+            if robot.facing != old_facing:
+                events.append(
+                    ActivationEvent(
+                        type="rotate",
+                        robot_id=robot.id,
+                        from_dir=old_facing,
+                        to_dir=robot.facing,
+                    ),
+                )
+
         if not board.in_bounds(robot.x, robot.y):
             robot._destroy()
+            if events is not None:
+                events.append(
+                    ActivationEvent(type="destroy", robot_id=robot.id, from_pos=(robot.x, robot.y)),
+                )
         elif board.tile_at(robot.x, robot.y).type == TileType.PIT:
             robot._destroy()
+            if events is not None:
+                events.append(
+                    ActivationEvent(type="destroy", robot_id=robot.id, from_pos=(robot.x, robot.y)),
+                )

@@ -3,38 +3,31 @@ import { useGameStore } from '../store/gameStore'
 
 let socket: WebSocket | null = null
 
-export function connect(): void {
-  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
-  socket = new WebSocket(url)
-  const store = useGameStore.getState()
+/**
+ * Server fires phase_change→programming + deal_hand immediately after the last register_events,
+ * while client animations take many seconds. Queue those messages until activation playback ends.
+ */
+const deferredActivationRound: ServerMessage[] = []
 
-  socket.onopen = () => {
-    store.setConnected(true)
-    // Server sends room_list automatically on connect
-  }
+/** True while activation animations still need to run (queue or current register HUD). */
+function activationPlaybackPending(): boolean {
+  const s = useGameStore.getState()
+  return (
+    s.phase === 'activation'
+    && (s.pendingRegisters.length > 0 || s.playbackHighlight !== null)
+  )
+}
 
-  socket.onclose = () => {
-    store.setConnected(false)
-    socket = null
-  }
-
-  socket.onmessage = (ev) => {
-    const msg: ServerMessage = JSON.parse(ev.data as string)
-    dispatch(msg)
+/** Apply after the activation sequencer clears — safe to apply programming round messages. */
+export function flushDeferredActivationMessages(): void {
+  if (deferredActivationRound.length === 0) return
+  const batch = deferredActivationRound.splice(0)
+  for (const m of batch) {
+    processServerMessage(m)
   }
 }
 
-export function disconnect(): void {
-  socket?.close()
-}
-
-export function send(msg: ClientMessage): void {
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(msg))
-  }
-}
-
-function dispatch(msg: ServerMessage): void {
+function processServerMessage(msg: ServerMessage): void {
   const store = useGameStore.getState()
   switch (msg.type) {
     case 'room_list':
@@ -55,11 +48,25 @@ function dispatch(msg: ServerMessage): void {
     case 'deal_hand':
       store.setDeal(msg.hand, msg.locked_cards, msg.programming_seconds_remaining)
       break
+    case 'programming_timer':
+      store.setProgrammingTimer(msg.programming_seconds_remaining)
+      break
+    case 'your_program':
+      store.setRegistersFromProgram(msg.cards)
+      break
     case 'phase_change':
+      if (msg.phase === 'activation') {
+        const regs = useGameStore.getState().registers
+        store.setActivationProgramCards([...regs])
+      }
       if (msg.phase === 'programming' && store.phase === 'activation') {
         store.setShowRoundResult(true)
       }
       store.setPhase(msg.phase)
+      if (msg.phase === 'programming') {
+        store.setPlaybackHighlight(null)
+        store.setActivationProgramCards(null)
+      }
       break
     case 'state_sync':
       store.applyStateSync(
@@ -84,5 +91,52 @@ function dispatch(msg: ServerMessage): void {
     case 'error':
       console.error('[ws]', msg.message)
       break
+  }
+}
+
+function dispatch(msg: ServerMessage): void {
+  if (
+    msg.type === 'phase_change'
+    && msg.phase === 'programming'
+    && activationPlaybackPending()
+  ) {
+    deferredActivationRound.push(msg)
+    return
+  }
+  if (msg.type === 'deal_hand' && activationPlaybackPending()) {
+    deferredActivationRound.push(msg)
+    return
+  }
+  processServerMessage(msg)
+}
+
+export function connect(): void {
+  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
+  socket = new WebSocket(url)
+  const store = useGameStore.getState()
+
+  socket.onopen = () => {
+    store.setConnected(true)
+  }
+
+  socket.onclose = () => {
+    store.setConnected(false)
+    socket = null
+  }
+
+  socket.onmessage = (ev) => {
+    const msg: ServerMessage = JSON.parse(ev.data as string)
+    dispatch(msg)
+  }
+}
+
+export function disconnect(): void {
+  deferredActivationRound.length = 0
+  socket?.close()
+}
+
+export function send(msg: ClientMessage): void {
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(msg))
   }
 }
