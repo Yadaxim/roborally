@@ -1,24 +1,8 @@
-export interface TileData {
-  x: number
-  y: number
-  type: string
-  direction?: string
-  speed?: number
-  rotation?: string
-  checkpoint_num?: number
-  laser_count?: number
-  active_registers?: number[]
-  walls: string[]
-}
+import type { BoardData, TileData } from '../types/game'
 
-export const DIZZY_HIGHWAY: {
-  name: string
-  width: number
-  height: number
-  start_positions: [number, number][]
-  checkpoints: [number, number][]
-  tiles: TileData[]
-} = {
+export type { TileData }
+
+export const DIZZY_HIGHWAY: BoardData = {
   name: 'Dizzy Highway',
   width: 12,
   height: 12,

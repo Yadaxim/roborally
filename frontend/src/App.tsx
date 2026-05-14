@@ -14,12 +14,30 @@ import './index.css'
 const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#e9c46a', '#f4a261']
 
 export default function App() {
-  const { phase, connected, playerId, roomId, roomName, isHost, requiredPlayers, rooms, lobbyPlayers, robots, winner, gamePaused } =
+  const { phase, connected, playerId, roomId, roomName, isHost, requiredPlayers, rooms, lobbyPlayers, robots, winner, gamePaused, lobbyBoardId, lobbyBoardName } =
     useGameStore()
   const [playerName, setPlayerName] = useState(() => proposePlayerName())
   const [createRoomName, setCreateRoomName] = useState('')
   const [createRequired, setCreateRequired] = useState(2)
+  const [createBoardId, setCreateBoardId] = useState('dizzy_highway')
+  const [availableBoards, setAvailableBoards] = useState<{ id: string; name: string }[]>([])
   useAnimationSequencer()
+
+  useEffect(() => {
+    if (!connected || roomId) return
+    fetch('/boards')
+      .then(r => r.json())
+      .then((data: { id: string; name: string }[]) => setAvailableBoards(Array.isArray(data) ? data : []))
+      .catch(() => setAvailableBoards([]))
+  }, [connected, roomId])
+
+  useEffect(() => {
+    if (!connected || !roomId || phase !== 'lobby') return
+    fetch('/boards')
+      .then(r => r.json())
+      .then((data: { id: string; name: string }[]) => setAvailableBoards(Array.isArray(data) ? data : []))
+      .catch(() => setAvailableBoards([]))
+  }, [connected, roomId, phase])
 
   /** Room title avoids lobby name clashes; player name only refills when cleared (quirky + random suffix). */
   useEffect(() => {
@@ -45,7 +63,13 @@ export default function App() {
 
   function handleCreateRoom() {
     if (!createRoomName.trim()) return
-    send({ type: 'create_room', player_name: playerName.trim(), room_name: createRoomName.trim(), required_players: createRequired })
+    send({
+      type: 'create_room',
+      player_name: playerName.trim(),
+      room_name: createRoomName.trim(),
+      required_players: createRequired,
+      board_id: createBoardId,
+    })
     setCreateRoomName('')
   }
 
@@ -59,6 +83,10 @@ export default function App() {
 
   function handleForceStart() {
     send({ type: 'force_start' })
+  }
+
+  function handleSetLobbyBoard(boardId: string) {
+    send({ type: 'set_board', board_id: boardId })
   }
 
   function handleTogglePause() {
@@ -162,6 +190,9 @@ export default function App() {
                     <span className="text-gray-400 text-sm ml-2">
                       {r.player_count}/{r.required_players} players
                     </span>
+                    {r.board_name ? (
+                      <span className="block text-gray-500 text-xs mt-0.5">Map: {r.board_name}</span>
+                    ) : null}
                   </div>
                   <button
                     className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded px-3 py-1"
@@ -201,6 +232,24 @@ export default function App() {
               </button>
             ))}
           </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-gray-400 text-sm">Factory map</span>
+            <select
+              className="bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+              value={createBoardId}
+              onChange={e => setCreateBoardId(e.target.value)}
+            >
+              {availableBoards.length === 0 ? (
+                <option value="dizzy_highway">Dizzy Highway</option>
+              ) : (
+                availableBoards.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
           <button
             className="bg-green-700 hover:bg-green-600 text-white font-semibold rounded px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={!createRoomName.trim()}
@@ -222,6 +271,29 @@ export default function App() {
         <div className="text-center">
           <p className="text-xl font-bold">{roomName || roomId}</p>
           <p className="text-gray-500 text-xs mt-0.5">Room ID: {roomId}</p>
+        </div>
+
+        <div className="w-full max-w-sm">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-gray-400 uppercase tracking-wide font-semibold">Factory map</span>
+            {isHost ? (
+              <select
+                className="bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                value={lobbyBoardId}
+                onChange={e => handleSetLobbyBoard(e.target.value)}
+              >
+                {(availableBoards.length ? availableBoards : [{ id: 'dizzy_highway', name: 'Dizzy Highway' }]).map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-gray-200 rounded border border-gray-700 bg-gray-800/60 px-3 py-2">
+                {lobbyBoardName || lobbyBoardId}
+              </p>
+            )}
+          </label>
         </div>
 
         {/* Roster */}

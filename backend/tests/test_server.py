@@ -37,6 +37,18 @@ class TestHealth:
         assert resp.json()["status"] == "ok"
 
 
+class TestBoards:
+    def test_boards_http_lists_loadable_boards(self, client):
+        resp = client.get("/boards")
+        assert resp.status_code == 200
+        data = resp.json()
+        ids = {b["id"] for b in data}
+        assert "dizzy_highway" in ids
+        assert "cannery_row" in ids
+        for b in data:
+            assert "id" in b and "name" in b
+
+
 class TestRoomList:
     def test_room_list_sent_on_connect(self, client):
         with client.websocket_connect("/ws") as ws:
@@ -223,6 +235,40 @@ class TestLobby:
                 ws_send(ws2, type="force_start")
                 msg = ws_recv(ws2)
                 assert msg["type"] == "error"
+
+    def test_create_room_with_board_id(self, client):
+        with connected_ws(client) as ws:
+            ws_send(
+                ws,
+                type="create_room",
+                player_name="alice",
+                room_name="MapRoom",
+                required_players=2,
+                board_id="exchange",
+            )
+            j = ws_recv(ws)
+            assert j["type"] == "joined"
+            assert j["board_id"] == "exchange"
+            assert j["board_name"]
+
+    def test_host_set_board_in_lobby_broadcasts(self, client):
+        with connected_ws(client) as ws1:
+            ws_send(ws1, type="create_room", player_name="alice", room_name="SB", required_players=2)
+            joined = ws_recv(ws1)
+            ws_recv(ws1)  # roster
+            rid = joined["room_id"]
+            with connected_ws(client) as ws2:
+                ws_send(ws2, type="join_room", player_name="bob", room_id=rid)
+                ws_recv(ws2)  # joined
+                ws_recv(ws2)  # roster
+                ws_recv(ws1)  # roster
+                ws_send(ws1, type="set_board", board_id="pit_maze")
+                m1 = ws_recv(ws1)
+                m2 = ws_recv(ws2)
+                assert m1["type"] == "board_updated"
+                assert m2["type"] == "board_updated"
+                assert m1["board_id"] == "pit_maze"
+                assert m2["board_id"] == "pit_maze"
 
     def test_created_room_appears_in_room_list(self, client):
         with connected_ws(client) as ws:

@@ -1,8 +1,12 @@
-import { DIZZY_HIGHWAY, type TileData } from '../../data/dizzyHighway'
+import { DIZZY_HIGHWAY } from '../../data/dizzyHighway'
+import type { BoardData, TileData } from '../../types/game'
+import { useGameStore } from '../../store/gameStore'
 import Tile3D from './Tile3D'
 
 export default function Board3D() {
-  const { width, height, tiles } = DIZZY_HIGHWAY
+  const activeBoard = useGameStore(s => s.activeBoard)
+  const board: BoardData = activeBoard ?? DIZZY_HIGHWAY
+  const { width, height, tiles } = board
   const tileMap = new Map<string, TileData>()
   for (const t of tiles) tileMap.set(`${t.x},${t.y}`, t)
 

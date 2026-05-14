@@ -71,6 +71,8 @@ class RoomSummary(BaseModel):
     player_count: int
     required_players: int
     in_progress: bool
+    board_id: str = "dizzy_highway"
+    board_name: str = ""
 
 
 class MsgRoomList(BaseModel):
@@ -105,11 +107,14 @@ class MsgJoined(BaseModel):
     room_name: str = ""
     is_host: bool = False
     required_players: int = 2
+    board_id: str = "dizzy_highway"
+    board_name: str = ""
 
 
 class MsgGameStarted(BaseModel):
     type: Literal["game_started"] = "game_started"
     robots: list[RobotOut]
+    board: dict[str, Any] = Field(default_factory=dict)
 
 
 class MsgDealHand(BaseModel):
@@ -159,6 +164,13 @@ class MsgStateSync(BaseModel):
     locked_cards: dict[int, CardOut] = {}
     paused: bool = False
     programming_seconds_remaining: float | None = None
+    board: dict[str, Any] | None = None
+
+
+class MsgBoardUpdated(BaseModel):
+    type: Literal["board_updated"] = "board_updated"
+    board_id: str
+    board_name: str
 
 
 class MsgGamePaused(BaseModel):
@@ -181,10 +193,16 @@ class CmdJoin(BaseModel):
 
 
 class CmdCreateRoom(BaseModel):
-    type: Literal["create_room"]
+    type: Literal["create_room"] = "create_room"
     player_name: str
     room_name: str
     required_players: int = Field(default=2, ge=1, le=4)
+    board_id: str = "dizzy_highway"
+
+
+class CmdSetBoard(BaseModel):
+    type: Literal["set_board"] = "set_board"
+    board_id: str
 
 
 class CmdJoinRoom(BaseModel):

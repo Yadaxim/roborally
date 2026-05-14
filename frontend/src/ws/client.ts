@@ -34,7 +34,15 @@ function processServerMessage(msg: ServerMessage): void {
       store.setRooms(msg.rooms)
       break
     case 'joined':
-      store.setJoined(msg.player_id, msg.room_id, msg.room_name, msg.is_host, msg.required_players)
+      store.setJoined(
+        msg.player_id,
+        msg.room_id,
+        msg.room_name,
+        msg.is_host,
+        msg.required_players,
+        msg.board_id,
+        msg.board_name,
+      )
       break
     case 'roster_update':
       store.setLobbyPlayers(msg.players)
@@ -44,6 +52,7 @@ function processServerMessage(msg: ServerMessage): void {
       break
     case 'game_started':
       store.setRobots(msg.robots)
+      store.setActiveBoard(msg.board)
       break
     case 'deal_hand':
       store.setDeal(msg.hand, msg.locked_cards, msg.programming_seconds_remaining)
@@ -76,10 +85,14 @@ function processServerMessage(msg: ServerMessage): void {
         msg.locked_cards,
         msg.paused,
         msg.programming_seconds_remaining,
+        msg.board,
       )
       break
     case 'game_paused':
       store.setGamePaused(msg.paused, msg.programming_seconds_remaining)
+      break
+    case 'board_updated':
+      store.setLobbyBoard(msg.board_id, msg.board_name)
       break
     case 'register_events':
       store.enqueueRegister(msg)

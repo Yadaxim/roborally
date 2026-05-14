@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from game.board import Board
 from game.cards import Card
 from game.activation import ActivationEvent
@@ -19,6 +21,8 @@ class Room:
         self,
         room_id: str,
         board: Board,
+        board_id: str,
+        board_dict: dict[str, Any],
         room_name: str = "",
         host_id: str = "",
         required_players: int = 2,
@@ -27,6 +31,8 @@ class Room:
         self.room_name = room_name or room_id
         self.host_id = host_id
         self.required_players = required_players
+        self.board_id = board_id
+        self.board_dict = board_dict
         self.engine = GameEngine(board)
         self.ready: dict[str, bool] = {}
         self.paused: bool = False
@@ -87,4 +93,19 @@ class Room:
             "player_count": len(self.engine.robots),
             "required_players": self.required_players,
             "in_progress": self.engine.phase != GamePhase.LOBBY,
+            "board_id": self.board_id,
+            "board_name": self.board_dict.get("name", self.board_id),
         }
+
+    def replace_lobby_board(self, board: Board, board_id: str, board_dict: dict[str, Any]) -> None:
+        """Swap factory board in lobby; robots re-seated on new start positions; ready flags cleared."""
+        if self.engine.phase != GamePhase.LOBBY:
+            raise RoomError("Can only change board in lobby")
+        player_ids = list(self.engine.robots.keys())
+        self.board_id = board_id
+        self.board_dict = board_dict
+        self.engine = GameEngine(board)
+        self.ready = {}
+        for pid in player_ids:
+            self.engine.add_player(pid)
+            self.ready[pid] = False

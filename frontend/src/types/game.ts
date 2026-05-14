@@ -1,3 +1,26 @@
+export interface TileData {
+  x: number
+  y: number
+  type: string
+  direction?: string
+  speed?: number
+  rotation?: string
+  checkpoint_num?: number
+  laser_count?: number
+  active_registers?: number[]
+  walls: string[]
+}
+
+/** Full board JSON as loaded from the server (matches `backend/data/boards/*.json`). */
+export interface BoardData {
+  name: string
+  width: number
+  height: number
+  start_positions: [number, number][]
+  checkpoints: [number, number][]
+  tiles: TileData[]
+}
+
 export type CardType =
   | 'u_turn'
   | 'turn_left'
@@ -55,6 +78,8 @@ export interface RoomSummary {
   player_count: number
   required_players: number
   in_progress: boolean
+  board_id: string
+  board_name: string
 }
 
 export interface LobbyPlayer {
@@ -66,15 +91,15 @@ export interface LobbyPlayer {
 // Server → Client messages
 export type ServerMessage =
   | { type: 'room_list'; rooms: RoomSummary[] }
-  | { type: 'joined'; player_id: string; room_id: string; room_name: string; is_host: boolean; required_players: number }
+  | { type: 'joined'; player_id: string; room_id: string; room_name: string; is_host: boolean; required_players: number; board_id: string; board_name: string }
   | { type: 'roster_update'; players: LobbyPlayer[] }
   | { type: 'player_ready'; player_id: string; is_ready: boolean }
-  | { type: 'game_started'; robots: Robot[] }
+  | { type: 'game_started'; robots: Robot[]; board: BoardData }
   | { type: 'deal_hand'; hand: Card[]; locked_cards: Record<number, Card>; programming_seconds_remaining?: number | null }
   | { type: 'programming_timer'; programming_seconds_remaining: number }
   | { type: 'your_program'; cards: Card[] }
   | { type: 'phase_change'; phase: Phase }
-  | { type: 'state_sync'; phase: Phase; robots: Robot[]; hand: Card[]; locked_cards: Record<number, Card>; paused?: boolean; programming_seconds_remaining?: number | null }
+  | { type: 'state_sync'; phase: Phase; robots: Robot[]; hand: Card[]; locked_cards: Record<number, Card>; paused?: boolean; programming_seconds_remaining?: number | null; board?: BoardData | null }
   | { type: 'game_paused'; paused: boolean; programming_seconds_remaining?: number | null }
   | {
       type: 'register_events'
@@ -85,16 +110,18 @@ export type ServerMessage =
       events: ActivationEvent[]
       robots: Robot[]
     }
+  | { type: 'board_updated'; board_id: string; board_name: string }
   | { type: 'game_over'; winner: string | null }
   | { type: 'error'; message: string }
 
 // Client → Server messages
 export type ClientMessage =
   | { type: 'join'; room_id: string; player_id: string }
-  | { type: 'create_room'; player_name: string; room_name: string; required_players: number }
+  | { type: 'create_room'; player_name: string; room_name: string; required_players: number; board_id?: string }
   | { type: 'join_room'; player_name: string; room_id: string }
   | { type: 'ready'; value: boolean }
   | { type: 'force_start' }
   | { type: 'start' }
   | { type: 'submit_registers'; cards: Card[] }
+  | { type: 'set_board'; board_id: string }
   | { type: 'set_paused'; value: boolean }

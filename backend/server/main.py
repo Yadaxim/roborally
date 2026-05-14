@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import pathlib
 import random
+import re
 import string
 import time
 from typing import Any
@@ -23,6 +25,7 @@ from server.schemas import (
     CmdJoin,
     CmdJoinRoom,
     CmdReady,
+    CmdSetBoard,
     CmdSetPaused,
     CmdSubmitRegisters,
     EventOut,
@@ -39,6 +42,7 @@ from server.schemas import (
     MsgRegisterEvents,
     MsgRoomList,
     MsgRosterUpdate,
+    MsgBoardUpdated,
     MsgStateSync,
     PlayerInRoomOut,
     RobotOut,
@@ -72,6 +76,39 @@ _programming_frozen_remaining: dict[str, float] = {}
 _browse_waiters: dict[int, WebSocket] = {}
 
 PROGRAMMING_TIMEOUT = 30  # seconds
+
+_BOARD_ID_RE = re.compile(r"^[a-z0-9_]+$")
+
+
+def _boards_dir() -> pathlib.Path:
+    return pathlib.Path(__file__).parent.parent / "data" / "boards"
+
+
+def _list_board_summaries() -> list[dict[str, str]]:
+    """JSON boards that load successfully."""
+    out: list[dict[str, str]] = []
+    for path in sorted(_boards_dir().glob("*.json")):
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        bid = path.stem
+        try:
+            Board.from_dict(data)
+        except (KeyError, ValueError, TypeError):
+            continue
+        out.append({"id": bid, "name": str(data.get("name", bid))})
+    return out
+
+
+def _load_board_bundle(board_id: str) -> tuple[Board, dict[str, Any]]:
+    if not board_id or not _BOARD_ID_RE.fullmatch(board_id):
+        raise ValueError("invalid board_id")
+    path = _boards_dir() / f"{board_id}.json"
+    if not path.is_file():
+        raise FileNotFoundError(board_id)
+    data: dict[str, Any] = json.loads(path.read_text())
+    return Board.from_dict(data), data
 
 
 def _random_program_from_hand(room: Room, player_id: str) -> list[Card] | None:
@@ -138,18 +175,6 @@ async def _maybe_start_programming_timer(room_id: str) -> None:
     if existing is not None and not existing.done():
         return
     _timers[room_id] = asyncio.create_task(_programming_timer(room_id))
-
-
-def _load_board(board_name: str) -> Board:
-    import json as _json
-    import pathlib
-    path = pathlib.Path(__file__).parent.parent / "data" / "boards" / f"{board_name}.json"
-    if path.exists():
-        return Board.from_dict(_json.loads(path.read_text()))
-    # Fallback: empty 12x12 for development
-    board = Board.empty(12, 12)
-    board.start_positions = [(2 + i * 2, 6) for i in range(4)]
-    return board
 
 
 def _make_room_id() -> str:
@@ -327,6 +352,7 @@ async def _send_state_sync(ws: WebSocket, room: Room, player_id: str) -> None:
     await _send(ws, MsgStateSync(
         phase=phase, robots=robots, hand=hand, locked_cards=locked_out,
         paused=room.paused, programming_seconds_remaining=rem,
+        board=room.board_dict,
     ))
 
 
@@ -366,7 +392,7 @@ async def _start_game(room_id: str) -> None:
         await _broadcast(room_id, MsgError(message=str(e)))
         return
     robots = [_robot_out(r) for r in room.engine.robots.values()]
-    await _broadcast(room_id, MsgGameStarted(robots=robots))
+    await _broadcast(room_id, MsgGameStarted(robots=robots, board=room.board_dict))
     await _deal_hands(room_id)
     await _broadcast_room_list_to_browsers()
 
@@ -379,6 +405,11 @@ async def health() -> dict:
 @app.get("/rooms")
 async def list_rooms() -> list[dict]:
     return [r.to_summary() for r in _rooms.values() if r.engine.phase == GamePhase.LOBBY]
+
+
+@app.get("/boards")
+async def list_boards() -> list[dict[str, str]]:
+    return _list_board_summaries()
 
 
 @app.websocket("/ws")
@@ -403,8 +434,20 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             room_id = cmd.room_id
             player_id = cmd.player_id
             if room_id not in _rooms:
-                board = _load_board("dizzy_highway")
-                _rooms[room_id] = Room(room_id, board)
+                try:
+                    board, bd = _load_board_bundle("dizzy_highway")
+                except (FileNotFoundError, ValueError, KeyError, TypeError):
+                    board = Board.empty(12, 12)
+                    board.start_positions = [(2 + i * 2, 6) for i in range(4)]
+                    bd = {
+                        "name": "Fallback",
+                        "width": 12,
+                        "height": 12,
+                        "tiles": [],
+                        "start_positions": [[2 + i * 2, 6] for i in range(4)],
+                        "checkpoints": [],
+                    }
+                _rooms[room_id] = Room(room_id, board, "dizzy_highway", bd)
                 _connections[room_id] = {}
             room = _rooms[room_id]
             is_reconnect = player_id in room.engine.robots
@@ -422,6 +465,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 room_name=room.room_name,
                 is_host=(room.host_id == player_id),
                 required_players=room.required_players,
+                board_id=room.board_id,
+                board_name=str(room.board_dict.get("name", room.board_id)),
             ))
             if is_reconnect:
                 await _send_state_sync(ws, room, player_id)
@@ -433,9 +478,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             room_id = _make_room_id()
             while room_id in _rooms:
                 room_id = _make_room_id()
-            board = _load_board("dizzy_highway")
+            try:
+                board, bd = _load_board_bundle(cmd.board_id)
+            except (FileNotFoundError, ValueError, KeyError, TypeError):
+                await _send(ws, MsgError(message=f"Invalid board: {cmd.board_id}"))
+                await ws.close()
+                return
             _rooms[room_id] = Room(
-                room_id, board,
+                room_id, board, cmd.board_id, bd,
                 room_name=cmd.room_name,
                 required_players=cmd.required_players,
             )
@@ -450,6 +500,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 room_name=cmd.room_name,
                 is_host=True,
                 required_players=cmd.required_players,
+                board_id=room.board_id,
+                board_name=str(room.board_dict.get("name", room.board_id)),
             ))
             await _broadcast_roster(room_id)
             await _broadcast_room_list_to_browsers()
@@ -478,6 +530,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 room_name=room.room_name,
                 is_host=(room.host_id == player_id),
                 required_players=room.required_players,
+                board_id=room.board_id,
+                board_name=str(room.board_dict.get("name", room.board_id)),
             ))
             if is_reconnect:
                 await _send_state_sync(ws, room, player_id)
@@ -524,11 +578,36 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 try:
                     room.start()
                     robots = [_robot_out(r) for r in room.engine.robots.values()]
-                    await _broadcast(room_id, MsgGameStarted(robots=robots))
+                    await _broadcast(room_id, MsgGameStarted(robots=robots, board=room.board_dict))
                     await _deal_hands(room_id)
                     await _broadcast_room_list_to_browsers()
                 except RoomError as e:
                     await _send(ws, MsgError(message=str(e)))
+
+            elif msg_type == "set_board":
+                cmd_b = CmdSetBoard(**data)
+                if player_id != room.host_id:
+                    await _send(ws, MsgError(message="Only the host can change the board"))
+                    continue
+                if room.engine.phase != GamePhase.LOBBY:
+                    await _send(ws, MsgError(message="Can only change board before the game starts"))
+                    continue
+                try:
+                    nb, bd = _load_board_bundle(cmd_b.board_id)
+                except (FileNotFoundError, ValueError, KeyError, TypeError):
+                    await _send(ws, MsgError(message=f"Invalid board: {cmd_b.board_id}"))
+                    continue
+                try:
+                    room.replace_lobby_board(nb, cmd_b.board_id, bd)
+                except RoomError as e:
+                    await _send(ws, MsgError(message=str(e)))
+                    continue
+                await _broadcast(room_id, MsgBoardUpdated(
+                    board_id=room.board_id,
+                    board_name=str(room.board_dict.get("name", room.board_id)),
+                ))
+                await _broadcast_roster(room_id)
+                await _broadcast_room_list_to_browsers()
 
             elif msg_type == "submit_registers":
                 cmd_r = CmdSubmitRegisters(**data)

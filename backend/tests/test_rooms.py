@@ -14,53 +14,66 @@ def simple_board() -> Board:
     return board
 
 
+def room_bundle() -> tuple[Board, str, dict]:
+    b = simple_board()
+    d = {
+        "name": "Test",
+        "width": 12,
+        "height": 12,
+        "start_positions": [list(p) for p in b.start_positions],
+        "checkpoints": [list(p) for p in b.checkpoints],
+        "tiles": [{"x": 2, "y": 2, "type": "checkpoint", "checkpoint_num": 1, "walls": []}],
+    }
+    return b, "test", d
+
+
 class TestRoomLifecycle:
     def test_room_starts_in_lobby(self):
-        room = Room("r1", simple_board())
+        room = Room("r1", *room_bundle())
         assert room.engine.phase == GamePhase.LOBBY
 
     def test_join_adds_player(self):
-        room = Room("r1", simple_board())
+        room = Room("r1", *room_bundle())
         room.join("p1")
         assert "p1" in room.engine.robots
 
     def test_join_up_to_four_players(self):
-        room = Room("r1", simple_board())
+        room = Room("r1", *room_bundle())
         for i in range(4):
             room.join(f"p{i}")
         assert len(room.engine.robots) == 4
 
     def test_join_fifth_player_raises(self):
-        room = Room("r1", simple_board())
+        room = Room("r1", *room_bundle())
         for i in range(4):
             room.join(f"p{i}")
         with pytest.raises(RoomError):
             room.join("p5")
 
     def test_same_player_rejoin_does_not_duplicate(self):
-        room = Room("r1", simple_board())
+        room = Room("r1", *room_bundle())
         room.join("p1")
         room.join("p1")
         assert len(room.engine.robots) == 1
 
     def test_start_game(self):
-        room = Room("r1", simple_board())
+        room = Room("r1", *room_bundle())
         room.join("p1")
         room.start()
         assert room.engine.phase == GamePhase.PROGRAMMING
 
     def test_start_with_no_players_raises(self):
-        room = Room("r1", simple_board())
+        room = Room("r1", *room_bundle())
         with pytest.raises(RoomError):
             room.start()
 
     def test_can_force_start_with_one_player(self):
-        room = Room("r1", simple_board(), required_players=1)
+        room = Room("r1", *room_bundle(), required_players=1)
         room.join("p1")
         assert room.can_force_start is True
 
     def test_all_ready_true_when_solo_ready(self):
-        room = Room("r1", simple_board(), required_players=1)
+        room = Room("r1", *room_bundle(), required_players=1)
         room.join("solo")
         assert room.all_ready is False
         room.set_ready("solo", True)
@@ -69,7 +82,7 @@ class TestRoomLifecycle:
 
 class TestRoomProgramming:
     def setup_method(self):
-        self.room = Room("r1", simple_board())
+        self.room = Room("r1", *room_bundle())
         self.room.join("p1")
         self.room.join("p2")
         self.room.start()
@@ -109,7 +122,8 @@ class TestRoomActivation:
         # No checkpoints so the game can't end mid-test
         board = Board.empty(12, 12)
         board.start_positions = [(5, 5)]
-        self.room = Room("r1", board)
+        bd = {"name": "Act", "width": 12, "height": 12, "start_positions": [[5, 5]], "checkpoints": [], "tiles": []}
+        self.room = Room("r1", board, "act", bd)
         self.room.join("p1")
         self.room.start()
         hand = self.room.get_hand("p1")
@@ -134,9 +148,32 @@ class TestRoomActivation:
             self.room.run_next_activation_substep()
 
 
+
+class TestRoomReplaceBoard:
+    def test_replace_lobby_board_reseats_robots(self):
+        room = Room("r1", *room_bundle())
+        room.join("a")
+        room.join("b")
+        board2 = Board.empty(12, 12)
+        board2.start_positions = [(10, 10), (10, 9)]
+        bd2 = {
+            "name": "Other",
+            "width": 12,
+            "height": 12,
+            "start_positions": [[10, 10], [10, 9]],
+            "checkpoints": [],
+            "tiles": [],
+        }
+        room.replace_lobby_board(board2, "other", bd2)
+        assert room.board_id == "other"
+        assert (room.engine.robots["a"].x, room.engine.robots["a"].y) == (10, 10)
+        assert (room.engine.robots["b"].x, room.engine.robots["b"].y) == (10, 9)
+        assert room.ready["a"] is False
+
+
 class TestRoomReconnect:
     def test_player_can_rejoin_after_game_starts(self):
-        room = Room("r1", simple_board())
+        room = Room("r1", *room_bundle())
         room.join("p1")
         room.start()
         # Player disconnects and rejoins — should not raise, robot already exists
@@ -144,7 +181,7 @@ class TestRoomReconnect:
         assert "p1" in room.engine.robots
 
     def test_reconnected_player_gets_same_robot(self):
-        room = Room("r1", simple_board())
+        room = Room("r1", *room_bundle())
         room.join("p1")
         room.start()
         robot_before = room.engine.robots["p1"]

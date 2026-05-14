@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Card, Phase, Robot, ActivationEvent, PendingRegister, RoomSummary, LobbyPlayer } from '../types/game'
+import type { Card, Phase, Robot, ActivationEvent, PendingRegister, RoomSummary, LobbyPlayer, BoardData } from '../types/game'
 
 /** Must match backend `PROGRAMMING_TIMEOUT` (seconds). */
 export const PROGRAMMING_TIMEOUT_SEC = 30
@@ -16,6 +16,11 @@ interface GameState {
   isHost: boolean
   roomName: string
   requiredPlayers: number
+  /** Selected map in lobby (host can change before start). */
+  lobbyBoardId: string
+  lobbyBoardName: string
+  /** Authoritative board from server once a match begins. */
+  activeBoard: BoardData | null
 
   // Game
   phase: Phase
@@ -46,10 +51,20 @@ interface GameState {
 
   // Actions
   setConnected: (v: boolean) => void
-  setJoined: (playerId: string, roomId: string, roomName: string, isHost: boolean, requiredPlayers: number) => void
+  setJoined: (
+    playerId: string,
+    roomId: string,
+    roomName: string,
+    isHost: boolean,
+    requiredPlayers: number,
+    lobbyBoardId?: string,
+    lobbyBoardName?: string,
+  ) => void
   setRooms: (rooms: RoomSummary[]) => void
   setLobbyPlayers: (players: LobbyPlayer[]) => void
   updateLobbyPlayerReady: (playerId: string, isReady: boolean) => void
+  setLobbyBoard: (boardId: string, boardName: string) => void
+  setActiveBoard: (board: BoardData | null) => void
   setPhase: (phase: Phase) => void
   setRobots: (robots: Robot[]) => void
   updateRobot: (id: string, updates: Partial<Robot>) => void
@@ -72,6 +87,7 @@ interface GameState {
     lockedCards: Record<number, Card>,
     paused?: boolean,
     programmingSecondsRemaining?: number | null,
+    board?: BoardData | null,
   ) => void
   setGamePaused: (paused: boolean, programmingSecondsRemaining?: number | null) => void
   enqueueRegister: (msg: PendingRegister) => void
@@ -100,7 +116,7 @@ function buildRegistersFromLocked(lockedCards: Record<number, Card>): (Card | nu
 const INITIAL: Pick<
   GameState,
   | 'connected' | 'playerId' | 'roomId'
-  | 'rooms' | 'lobbyPlayers' | 'isHost' | 'roomName' | 'requiredPlayers'
+  | 'rooms' | 'lobbyPlayers' | 'isHost' | 'roomName' | 'requiredPlayers' | 'lobbyBoardId' | 'lobbyBoardName' | 'activeBoard'
   | 'phase' | 'robots' | 'hand' | 'registers' | 'lockedCards'
   | 'lastEvents' | 'roundEvents' | 'showRoundResult' | 'winner' | 'dealTime'
   | 'gamePaused' | 'programmingSecondsRemaining' | 'pendingRegisters' | 'playbackHighlight'
@@ -114,6 +130,9 @@ const INITIAL: Pick<
   isHost: false,
   roomName: '',
   requiredPlayers: 2,
+  lobbyBoardId: 'dizzy_highway',
+  lobbyBoardName: '',
+  activeBoard: null,
   phase: 'lobby',
   robots: [],
   hand: [],
@@ -135,8 +154,18 @@ export const useGameStore = create<GameState>((set) => ({
   ...INITIAL,
 
   setConnected: (connected) => set({ connected }),
-  setJoined: (playerId, roomId, roomName, isHost, requiredPlayers) =>
-    set({ playerId, roomId, roomName, isHost, requiredPlayers }),
+  setJoined: (playerId, roomId, roomName, isHost, requiredPlayers, lobbyBoardId, lobbyBoardName) =>
+    set({
+      playerId,
+      roomId,
+      roomName,
+      isHost,
+      requiredPlayers,
+      lobbyBoardId: lobbyBoardId ?? 'dizzy_highway',
+      lobbyBoardName: lobbyBoardName ?? '',
+    }),
+  setLobbyBoard: (lobbyBoardId, lobbyBoardName) => set({ lobbyBoardId, lobbyBoardName }),
+  setActiveBoard: (activeBoard) => set({ activeBoard }),
   setRooms: (rooms) => set({ rooms }),
   setLobbyPlayers: (lobbyPlayers) => set({ lobbyPlayers }),
   updateLobbyPlayerReady: (playerId, isReady) =>
@@ -193,7 +222,7 @@ export const useGameStore = create<GameState>((set) => ({
     set((s) => ({ roundEvents: [...s.roundEvents, ...events] })),
   setShowRoundResult: (showRoundResult) => set({ showRoundResult }),
   setWinner: (winner) => set({ winner }),
-  applyStateSync: (phase, robots, hand, lockedCards, paused, programmingSecondsRemaining) =>
+  applyStateSync: (phase, robots, hand, lockedCards, paused, programmingSecondsRemaining, board) =>
     set({
       phase,
       robots,
@@ -201,6 +230,7 @@ export const useGameStore = create<GameState>((set) => ({
       lockedCards,
       gamePaused: paused ?? false,
       programmingSecondsRemaining: programmingSecondsRemaining ?? null,
+      ...(board != null ? { activeBoard: board } : {}),
       ...(phase === 'programming'
         ? programmingSecondsRemaining != null
           ? {
