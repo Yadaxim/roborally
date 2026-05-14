@@ -94,7 +94,7 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 - ✅ Laser beam visual (red line flash + fade during lasers sub-step)
 
 - ✅ Damage animation (robot body/head tint + emissive pulse during damage activation events)
-- ⬜ Destroy / reboot animation (robot sinks, reappears at archive)
+- ✅ Destroy / reboot animation (robot sinks, reappears at archive) — `beginDestroySink` + `DESTROY_SINK_MS` in sequencer; `respawnPopStart` / `RESPAWN_POP_MS` on dead→alive sync; `Robot3D` sink + pop in `useFrame`
 - ⬜ Conveyor belt scroll animation
 - ⬜ Gear rotation animation
 - ✅ Additional boards — Cannery Row, Exchange, Pit Maze, Maelstrom (`backend/data/boards/*.json`)

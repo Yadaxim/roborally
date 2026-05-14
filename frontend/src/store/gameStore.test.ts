@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DAMAGE_FLASH_DURATION_MS } from '../utils/damageFlash'
+import { DESTROY_SINK_MS } from '../utils/destroySink'
+import type { Robot } from '../types/game'
 import { useGameStore } from './gameStore'
 
 beforeEach(() => useGameStore.getState().reset())
@@ -163,6 +165,69 @@ describe('reset', () => {
     const s = useGameStore.getState()
     expect(s.playerId).toBeNull()
     expect(s.phase).toBe('lobby')
+  })
+})
+
+function makeRobot(id: string, alive: boolean): Robot {
+  return {
+    id,
+    x: 1,
+    y: 2,
+    facing: 'north',
+    damage: 0,
+    lives: 3,
+    checkpoints_touched: 0,
+    is_alive: alive,
+    locked_registers: [],
+  }
+}
+
+describe('destroy sink', () => {
+  it('beginDestroySink schedules deadline', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(20_000)
+    useGameStore.getState().beginDestroySink('a')
+    expect(useGameStore.getState().destroySinkUntil.a).toBe(20_000 + DESTROY_SINK_MS)
+    vi.useRealTimers()
+  })
+
+  it('clearDestroySink removes entry', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1000)
+    useGameStore.getState().beginDestroySink('b')
+    useGameStore.getState().clearDestroySink('b')
+    expect(useGameStore.getState().destroySinkUntil.b).toBeUndefined()
+    vi.useRealTimers()
+  })
+
+  it('is cleared by setDeal', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1000)
+    useGameStore.getState().beginDestroySink('c')
+    useGameStore.getState().setDeal([], {})
+    expect(useGameStore.getState().destroySinkUntil).toEqual({})
+    vi.useRealTimers()
+  })
+})
+
+describe('respawn pop', () => {
+  it('setRobots records respawnPopStart when robot revives', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(50_000)
+    useGameStore.getState().setRobots([makeRobot('a', false)])
+    useGameStore.getState().setRobots([makeRobot('a', true)])
+    expect(useGameStore.getState().respawnPopStart.a).toBe(50_000)
+    vi.useRealTimers()
+  })
+
+  it('clearRespawnPop removes entry', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1)
+    useGameStore.getState().setRobots([makeRobot('x', false)])
+    useGameStore.getState().setRobots([makeRobot('x', true)])
+    useGameStore.getState().clearRespawnPop('x')
+    expect(useGameStore.getState().respawnPopStart.x).toBeUndefined()
+    vi.useRealTimers()
   })
 })
 

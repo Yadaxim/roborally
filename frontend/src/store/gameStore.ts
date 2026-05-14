@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { Card, Phase, Robot, ActivationEvent, PendingRegister, RoomSummary, LobbyPlayer, BoardData } from '../types/game'
 import { nextDamageFlashUntil, pruneExpiredFlashes } from '../utils/damageFlash'
+import { nextDestroySinkUntil, pruneExpiredDestroySinks } from '../utils/destroySink'
+import { mergeRespawnPopStarts } from '../utils/respawnPop'
 
 /** Must match backend `PROGRAMMING_TIMEOUT` (seconds). */
 export const PROGRAMMING_TIMEOUT_SEC = 30
@@ -53,6 +55,10 @@ interface GameState {
   laserBeamPath: [number, number][] | null
   /** Per-robot wall-clock deadline (ms) for red damage hit tint during activation playback. */
   damageFlashUntil: Record<string, number>
+  /** Per-robot sink-into-floor animation before mesh hides on destroy. */
+  destroySinkUntil: Record<string, number>
+  /** When a robot revives, wall-clock start (ms) for scale-up pop animation. */
+  respawnPopStart: Record<string, number>
 
   // Actions
   setConnected: (v: boolean) => void
@@ -109,6 +115,9 @@ interface GameState {
   setActivationProgramCards: (cards: (Card | null)[] | null) => void
   setLaserBeamPath: (path: [number, number][] | null) => void
   pulseDamageFlash: (robotId: string) => void
+  beginDestroySink: (robotId: string) => void
+  clearDestroySink: (robotId: string) => void
+  clearRespawnPop: (robotId: string) => void
   reset: () => void
 }
 
@@ -127,7 +136,7 @@ const INITIAL: Pick<
   | 'phase' | 'robots' | 'hand' | 'registers' | 'lockedCards'
   | 'lastEvents' | 'roundEvents' | 'showRoundResult' | 'winner' | 'dealTime'
   | 'gamePaused' | 'programmingSecondsRemaining' | 'pendingRegisters' | 'playbackHighlight'
-  | 'activationProgramCards' | 'laserBeamPath' | 'damageFlashUntil'
+  | 'activationProgramCards' | 'laserBeamPath' | 'damageFlashUntil' | 'destroySinkUntil' | 'respawnPopStart'
 > = {
   connected: false,
   playerId: null,
@@ -157,6 +166,8 @@ const INITIAL: Pick<
   activationProgramCards: null,
   laserBeamPath: null,
   damageFlashUntil: {},
+  destroySinkUntil: {},
+  respawnPopStart: {},
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -184,7 +195,11 @@ export const useGameStore = create<GameState>((set) => ({
       ),
     })),
   setPhase: (phase) => set({ phase }),
-  setRobots: (robots) => set({ robots }),
+  setRobots: (robots) =>
+    set((s) => ({
+      robots,
+      respawnPopStart: mergeRespawnPopStarts(s.respawnPopStart, s.robots, robots, Date.now()),
+    })),
   updateRobot: (id, updates) =>
     set((s) => ({ robots: s.robots.map(r => r.id === id ? { ...r, ...updates } : r) })),
   setHand: (hand) => set({ hand, dealTime: Date.now() }),
@@ -207,6 +222,8 @@ export const useGameStore = create<GameState>((set) => ({
       activationProgramCards: null,
       laserBeamPath: null,
       damageFlashUntil: {},
+      destroySinkUntil: {},
+      respawnPopStart: {},
     })
   },
   setRegister: (slot, card) =>
@@ -234,11 +251,12 @@ export const useGameStore = create<GameState>((set) => ({
   setShowRoundResult: (showRoundResult) => set({ showRoundResult }),
   setWinner: (winner) => set({ winner }),
   applyStateSync: (phase, robots, hand, lockedCards, paused, programmingSecondsRemaining, board) =>
-    set({
+    set((s) => ({
       phase,
       robots,
       hand,
       lockedCards,
+      respawnPopStart: mergeRespawnPopStarts(s.respawnPopStart, s.robots, robots, Date.now()),
       gamePaused: paused ?? false,
       programmingSecondsRemaining: programmingSecondsRemaining ?? null,
       ...(board != null ? { activeBoard: board } : {}),
@@ -249,7 +267,7 @@ export const useGameStore = create<GameState>((set) => ({
             }
           : { dealTime: null }
         : {}),
-    }),
+    })),
   setGamePaused: (paused, programmingSecondsRemaining) =>
     set(() => ({
       gamePaused: paused,
@@ -277,6 +295,24 @@ export const useGameStore = create<GameState>((set) => ({
       const now = Date.now()
       const trimmed = pruneExpiredFlashes(s.damageFlashUntil, now)
       return { damageFlashUntil: nextDamageFlashUntil(trimmed, robotId, now) }
+    }),
+  beginDestroySink: (robotId) =>
+    set((s) => {
+      const now = Date.now()
+      const trimmed = pruneExpiredDestroySinks(s.destroySinkUntil, now)
+      return { destroySinkUntil: nextDestroySinkUntil(trimmed, robotId, now) }
+    }),
+  clearDestroySink: (robotId) =>
+    set((s) => {
+      const next = { ...s.destroySinkUntil }
+      delete next[robotId]
+      return { destroySinkUntil: next }
+    }),
+  clearRespawnPop: (robotId) =>
+    set((s) => {
+      const next = { ...s.respawnPopStart }
+      delete next[robotId]
+      return { respawnPopStart: next }
     }),
   reset: () => set(INITIAL),
 }))

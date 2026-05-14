@@ -3,9 +3,11 @@ import type { PendingRegister } from '../types/game'
 import { useGameStore } from '../store/gameStore'
 import { flushDeferredActivationMessages } from '../ws/client'
 import { DAMAGE_FLASH_DURATION_MS } from '../utils/damageFlash'
+import { DESTROY_SINK_MS } from '../utils/destroySink'
 
 const MOVE_ROTATE_MS = 420
 const OTHER_MS = 380
+const DESTROY_POST_MS = OTHER_MS - DESTROY_SINK_MS
 const REGISTER_PAUSE_MS = 650
 const LASER_BEAM_FLASH_MS = 300
 
@@ -57,8 +59,11 @@ export function useAnimationSequencer() {
           store.pulseDamageFlash(ev.robot_id)
           await delay(DAMAGE_FLASH_DURATION_MS)
         } else if (ev.type === 'destroy') {
+          store.beginDestroySink(ev.robot_id)
+          await delay(DESTROY_SINK_MS)
           store.updateRobot(ev.robot_id, { is_alive: false })
-          await delay(OTHER_MS)
+          store.clearDestroySink(ev.robot_id)
+          await delay(DESTROY_POST_MS)
         } else if (ev.type === 'laser') {
           const lp = ev.laser_path
           if (lp && lp.length >= 2) {

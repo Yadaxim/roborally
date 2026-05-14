@@ -5,6 +5,8 @@ import { Color, Group, MeshStandardMaterial } from 'three'
 import type { Robot } from '../../types/game'
 import { useGameStore } from '../../store/gameStore'
 import { DAMAGE_FLASH_DURATION_MS } from '../../utils/damageFlash'
+import { DESTROY_SINK_MS } from '../../utils/destroySink'
+import { RESPAWN_POP_MS } from '../../utils/respawnPop'
 
 const FACING_ANGLE: Record<string, number> = {
   north: 0,
@@ -26,6 +28,7 @@ export default function Robot3D({ robot, color }: Props) {
   const baseHead = useRef(new Color())
   const bodyMatRef = useRef<MeshStandardMaterial | null>(null)
   const headMatRef = useRef<MeshStandardMaterial | null>(null)
+  const lastPopCleared = useRef<number | null>(null)
 
   useEffect(() => {
     baseBody.current.set(color)
@@ -51,12 +54,41 @@ export default function Robot3D({ robot, color }: Props) {
 
   useFrame(() => {
     if (!groupRef.current) return
-    groupRef.current.position.x = px.get()
-    groupRef.current.position.z = pz.get()
-    groupRef.current.rotation.y = ry.get()
+    const g = groupRef.current
+    g.position.x = px.get()
+    g.position.z = pz.get()
+    g.rotation.y = ry.get()
 
-    const until = useGameStore.getState().damageFlashUntil[robot.id] ?? 0
+    const st = useGameStore.getState()
     const now = Date.now()
+    const sinkUntil = st.destroySinkUntil[robot.id] ?? 0
+    const popStart = st.respawnPopStart[robot.id]
+
+    let sinkY = 0
+    let sinkS = 1
+    if (sinkUntil > now && robot.is_alive) {
+      const frac = Math.min(1, Math.max(0, (sinkUntil - now) / DESTROY_SINK_MS))
+      sinkY = -1.25 * (1 - frac)
+      sinkS = 0.08 + 0.92 * frac
+    }
+
+    let popY = 0
+    let popS = 1
+    if (robot.is_alive && popStart !== undefined) {
+      const t = Math.min(1, Math.max(0, (now - popStart) / RESPAWN_POP_MS))
+      const ease = 1 - (1 - t) ** 3
+      popY = -0.38 * (1 - ease)
+      popS = 0.12 + 0.88 * ease
+      if (t >= 1 && lastPopCleared.current !== popStart) {
+        lastPopCleared.current = popStart
+        st.clearRespawnPop(robot.id)
+      }
+    }
+
+    g.position.y = 0.15 + sinkY + popY
+    g.scale.setScalar(sinkS * popS)
+
+    const until = st.damageFlashUntil[robot.id] ?? 0
     const u = until > now ? Math.min(1, (until - now) / DAMAGE_FLASH_DURATION_MS) : 0
     const b = bodyMatRef.current
     const h = headMatRef.current
