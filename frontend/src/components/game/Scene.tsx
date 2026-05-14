@@ -4,6 +4,7 @@ import { Vector3 } from 'three'
 import { useGameStore } from '../../store/gameStore'
 import Board3D from './Board3D'
 import Robot3D from './Robot3D'
+import LaserBeam3D from './LaserBeam3D'
 
 const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#e9c46a', '#f4a261']
 
@@ -50,6 +51,7 @@ function CameraController({
 
 export default function Scene() {
   const robots = useGameStore(s => s.robots)
+  const laserBeamPath = useGameStore(s => s.laserBeamPath)
   const [isometric, setIsometric] = useState(true)
   /** Orbit angle (°) around Y through board center; 0 = +X direction */
   const [orbitDeg, setOrbitDeg] = useState(45)
@@ -63,6 +65,9 @@ export default function Scene() {
         <ambientLight intensity={0.5} />
         <directionalLight position={[8, 12, 8]} intensity={1} />
         <Board3D />
+        {laserBeamPath && laserBeamPath.length >= 2 && (
+          <LaserBeam3D path={laserBeamPath} />
+        )}
         {robots.map((r, i) => (
           <Robot3D key={r.id} robot={r} color={PLAYER_COLORS[i % PLAYER_COLORS.length]} />
         ))}

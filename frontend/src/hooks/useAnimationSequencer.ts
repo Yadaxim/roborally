@@ -6,6 +6,7 @@ import { flushDeferredActivationMessages } from '../ws/client'
 const MOVE_ROTATE_MS = 420
 const OTHER_MS = 380
 const REGISTER_PAUSE_MS = 650
+const LASER_BEAM_FLASH_MS = 300
 
 function delay(ms: number) {
   return new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -55,7 +56,14 @@ export function useAnimationSequencer() {
           store.updateRobot(ev.robot_id, { is_alive: false })
           await delay(OTHER_MS)
         } else if (ev.type === 'laser') {
-          await delay(OTHER_MS)
+          const lp = ev.laser_path
+          if (lp && lp.length >= 2) {
+            store.setLaserBeamPath(lp as [number, number][])
+            await delay(LASER_BEAM_FLASH_MS)
+            store.setLaserBeamPath(null)
+          } else {
+            await delay(OTHER_MS)
+          }
         } else if (ev.type === 'checkpoint') {
           await delay(OTHER_MS)
         }

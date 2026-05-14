@@ -91,7 +91,7 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 
 - ✅ Live camera angle slider (elevation + rotation) for isometric view tuning — panel bottom-left in isometric mode; orbit 0–360°, elevation 15–75°; smooth lerp to target
 
-- ⬜ Laser beam visual (red line flash + fade)
+- ✅ Laser beam visual (red line flash + fade during lasers sub-step)
 
 - ⬜ Damage animation (robot flashes red)
 - ⬜ Destroy / reboot animation (robot sinks, reappears at archive)
@@ -150,6 +150,7 @@ Cross-check with `research/game_rules.md` for wording. The MVP engine already co
 - ✅ Lobby overhaul — room browser, create-room flow, roster panel, ready system, force start (24 new server tests)
 - ✅ Activation WebSocket protocol — `programming_timer`, `your_program`, per–sub-step `register_events` with `substep_id` / `substep_index` / `substep_total`
 - ✅ Map selection — `GET /boards`, host `set_board` in lobby, `board_id` on `create_room`, `game_started` / `state_sync` carry full board JSON; 3D uses server board after start
+- ✅ Laser beam playback — red additive beam along `laser_path` during activation lasers sub-step (fade + store-driven)
 
 ---
 

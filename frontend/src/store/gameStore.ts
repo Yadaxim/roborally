@@ -48,6 +48,8 @@ interface GameState {
   } | null
   /** Captured when activation begins — HUD uses this so cards stay visible if live `registers` changes */
   activationProgramCards: (Card | null)[] | null
+  /** Polyline in board (x,y) space for a short laser flash during activation playback. */
+  laserBeamPath: [number, number][] | null
 
   // Actions
   setConnected: (v: boolean) => void
@@ -102,6 +104,7 @@ interface GameState {
     } | null,
   ) => void
   setActivationProgramCards: (cards: (Card | null)[] | null) => void
+  setLaserBeamPath: (path: [number, number][] | null) => void
   reset: () => void
 }
 
@@ -120,7 +123,7 @@ const INITIAL: Pick<
   | 'phase' | 'robots' | 'hand' | 'registers' | 'lockedCards'
   | 'lastEvents' | 'roundEvents' | 'showRoundResult' | 'winner' | 'dealTime'
   | 'gamePaused' | 'programmingSecondsRemaining' | 'pendingRegisters' | 'playbackHighlight'
-  | 'activationProgramCards'
+  | 'activationProgramCards' | 'laserBeamPath'
 > = {
   connected: false,
   playerId: null,
@@ -148,6 +151,7 @@ const INITIAL: Pick<
   pendingRegisters: [],
   playbackHighlight: null,
   activationProgramCards: null,
+  laserBeamPath: null,
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -196,6 +200,7 @@ export const useGameStore = create<GameState>((set) => ({
       showRoundResult: false,
       playbackHighlight: null,
       activationProgramCards: null,
+      laserBeamPath: null,
     })
   },
   setRegister: (slot, card) =>
@@ -260,5 +265,6 @@ export const useGameStore = create<GameState>((set) => ({
   },
   setPlaybackHighlight: (playbackHighlight) => set({ playbackHighlight }),
   setActivationProgramCards: (activationProgramCards) => set({ activationProgramCards }),
+  setLaserBeamPath: (laserBeamPath) => set({ laserBeamPath }),
   reset: () => set(INITIAL),
 }))
