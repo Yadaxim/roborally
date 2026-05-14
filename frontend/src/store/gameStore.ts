@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Card, Phase, Robot, ActivationEvent, PendingRegister, RoomSummary, LobbyPlayer, BoardData } from '../types/game'
+import { nextDamageFlashUntil, pruneExpiredFlashes } from '../utils/damageFlash'
 
 /** Must match backend `PROGRAMMING_TIMEOUT` (seconds). */
 export const PROGRAMMING_TIMEOUT_SEC = 30
@@ -50,6 +51,8 @@ interface GameState {
   activationProgramCards: (Card | null)[] | null
   /** Polyline in board (x,y) space for a short laser flash during activation playback. */
   laserBeamPath: [number, number][] | null
+  /** Per-robot wall-clock deadline (ms) for red damage hit tint during activation playback. */
+  damageFlashUntil: Record<string, number>
 
   // Actions
   setConnected: (v: boolean) => void
@@ -105,6 +108,7 @@ interface GameState {
   ) => void
   setActivationProgramCards: (cards: (Card | null)[] | null) => void
   setLaserBeamPath: (path: [number, number][] | null) => void
+  pulseDamageFlash: (robotId: string) => void
   reset: () => void
 }
 
@@ -123,7 +127,7 @@ const INITIAL: Pick<
   | 'phase' | 'robots' | 'hand' | 'registers' | 'lockedCards'
   | 'lastEvents' | 'roundEvents' | 'showRoundResult' | 'winner' | 'dealTime'
   | 'gamePaused' | 'programmingSecondsRemaining' | 'pendingRegisters' | 'playbackHighlight'
-  | 'activationProgramCards' | 'laserBeamPath'
+  | 'activationProgramCards' | 'laserBeamPath' | 'damageFlashUntil'
 > = {
   connected: false,
   playerId: null,
@@ -152,6 +156,7 @@ const INITIAL: Pick<
   playbackHighlight: null,
   activationProgramCards: null,
   laserBeamPath: null,
+  damageFlashUntil: {},
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -201,6 +206,7 @@ export const useGameStore = create<GameState>((set) => ({
       playbackHighlight: null,
       activationProgramCards: null,
       laserBeamPath: null,
+      damageFlashUntil: {},
     })
   },
   setRegister: (slot, card) =>
@@ -266,5 +272,11 @@ export const useGameStore = create<GameState>((set) => ({
   setPlaybackHighlight: (playbackHighlight) => set({ playbackHighlight }),
   setActivationProgramCards: (activationProgramCards) => set({ activationProgramCards }),
   setLaserBeamPath: (laserBeamPath) => set({ laserBeamPath }),
+  pulseDamageFlash: (robotId) =>
+    set((s) => {
+      const now = Date.now()
+      const trimmed = pruneExpiredFlashes(s.damageFlashUntil, now)
+      return { damageFlashUntil: nextDamageFlashUntil(trimmed, robotId, now) }
+    }),
   reset: () => set(INITIAL),
 }))

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import type { PendingRegister } from '../types/game'
 import { useGameStore } from '../store/gameStore'
 import { flushDeferredActivationMessages } from '../ws/client'
+import { DAMAGE_FLASH_DURATION_MS } from '../utils/damageFlash'
 
 const MOVE_ROTATE_MS = 420
 const OTHER_MS = 380
@@ -52,6 +53,9 @@ export function useAnimationSequencer() {
         } else if (ev.type === 'rotate' && ev.to_dir) {
           store.updateRobot(ev.robot_id, { facing: ev.to_dir })
           await delay(MOVE_ROTATE_MS)
+        } else if (ev.type === 'damage') {
+          store.pulseDamageFlash(ev.robot_id)
+          await delay(DAMAGE_FLASH_DURATION_MS)
         } else if (ev.type === 'destroy') {
           store.updateRobot(ev.robot_id, { is_alive: false })
           await delay(OTHER_MS)

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DAMAGE_FLASH_DURATION_MS } from '../utils/damageFlash'
 import { useGameStore } from './gameStore'
 
 beforeEach(() => useGameStore.getState().reset())
@@ -162,5 +163,33 @@ describe('reset', () => {
     const s = useGameStore.getState()
     expect(s.playerId).toBeNull()
     expect(s.phase).toBe('lobby')
+  })
+})
+
+describe('pulseDamageFlash', () => {
+  it('records flash end time for the robot', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(50_000)
+    useGameStore.getState().pulseDamageFlash('alice')
+    expect(useGameStore.getState().damageFlashUntil.alice).toBe(50_000 + DAMAGE_FLASH_DURATION_MS)
+    vi.useRealTimers()
+  })
+
+  it('is cleared by setDeal', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    useGameStore.getState().pulseDamageFlash('bob')
+    useGameStore.getState().setDeal([], {})
+    expect(useGameStore.getState().damageFlashUntil).toEqual({})
+    vi.useRealTimers()
+  })
+
+  it('is cleared by reset', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    useGameStore.getState().pulseDamageFlash('carol')
+    useGameStore.getState().reset()
+    expect(useGameStore.getState().damageFlashUntil).toEqual({})
+    vi.useRealTimers()
   })
 })

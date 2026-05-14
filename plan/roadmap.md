@@ -93,7 +93,7 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 
 - ✅ Laser beam visual (red line flash + fade during lasers sub-step)
 
-- ⬜ Damage animation (robot flashes red)
+- ✅ Damage animation (robot body/head tint + emissive pulse during damage activation events)
 - ⬜ Destroy / reboot animation (robot sinks, reappears at archive)
 - ⬜ Conveyor belt scroll animation
 - ⬜ Gear rotation animation
@@ -151,6 +151,7 @@ Cross-check with `research/game_rules.md` for wording. The MVP engine already co
 - ✅ Activation WebSocket protocol — `programming_timer`, `your_program`, per–sub-step `register_events` with `substep_id` / `substep_index` / `substep_total`
 - ✅ Map selection — `GET /boards`, host `set_board` in lobby, `board_id` on `create_room`, `game_started` / `state_sync` carry full board JSON; 3D uses server board after start
 - ✅ Laser beam playback — red additive beam along `laser_path` during activation lasers sub-step (fade + store-driven)
+- ✅ Damage flash playback — `pulseDamageFlash` + per-robot deadline; `Robot3D` lerps color/emissive during activation
 
 ---
 
