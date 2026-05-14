@@ -4,6 +4,7 @@ import { Group } from 'three'
 import type { TileData } from '../../data/dizzyHighway'
 import { useGameStore } from '../../store/gameStore'
 import { isConveyorActivationSubstep } from '../../utils/conveyorActivation'
+import { isGearsActivationSubstep } from '../../utils/gearActivation'
 
 const TILE_COLORS: Record<string, string> = {
   floor:         '#4a4a4a',
@@ -97,11 +98,40 @@ function ConveyorArrow({ x, y, dir, speed }: { x: number; y: number; dir: string
 }
 
 function GearDecor({ x, y }: { x: number; y: number }) {
+  const grp = useRef<Group>(null)
+  const baseY = 0.06
+
+  useFrame((_, dt) => {
+    const g = grp.current
+    if (!g) return
+    const sub = useGameStore.getState().playbackHighlight?.substepId
+    if (!isGearsActivationSubstep(sub)) {
+      g.rotation.y = 0
+      return
+    }
+    g.rotation.y += dt * 2.0
+  })
+
   return (
-    <mesh position={[x, 0.06, y]}>
-      <cylinderGeometry args={[0.35, 0.35, 0.02, 16]} />
-      <meshStandardMaterial color="#222222" />
-    </mesh>
+    <group ref={grp} position={[x, baseY, y]}>
+      <mesh>
+        <cylinderGeometry args={[0.34, 0.34, 0.028, 6]} />
+        <meshStandardMaterial color="#2a2a2a" metalness={0.35} roughness={0.55} />
+      </mesh>
+      {[0, 1, 2].map(i => (
+        <mesh
+          key={i}
+          position={[
+            Math.cos((i * 2 * Math.PI) / 3) * 0.26,
+            0.02,
+            Math.sin((i * 2 * Math.PI) / 3) * 0.26,
+          ]}
+        >
+          <boxGeometry args={[0.07, 0.035, 0.1]} />
+          <meshStandardMaterial color="#8844aa" metalness={0.2} roughness={0.4} />
+        </mesh>
+      ))}
+    </group>
   )
 }
 
