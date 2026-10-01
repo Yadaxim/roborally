@@ -250,6 +250,56 @@ class TestLobby:
             assert j["type"] == "joined"
             assert j["board_id"] == "exchange"
             assert j["board_name"]
+            assert j.get("game_mode") == "standard"
+
+    def test_create_room_with_game_mode(self, client):
+        with connected_ws(client) as ws:
+            ws_send(
+                ws,
+                type="create_room",
+                player_name="alice",
+                room_name="ModeRoom",
+                required_players=2,
+                board_id="dizzy_highway",
+                game_mode="demolition_derby",
+            )
+            j = ws_recv(ws)
+            assert j["type"] == "joined"
+            assert j["game_mode"] == "demolition_derby"
+
+    def test_host_set_mode_in_lobby_broadcasts(self, client):
+        with connected_ws(client) as ws1:
+            ws_send(ws1, type="create_room", player_name="alice", room_name="SM", required_players=2)
+            joined = ws_recv(ws1)
+            ws_recv(ws1)  # roster
+            rid = joined["room_id"]
+            with connected_ws(client) as ws2:
+                ws_send(ws2, type="join_room", player_name="bob", room_id=rid)
+                ws_recv(ws2)  # joined
+                ws_recv(ws2)  # roster
+                ws_recv(ws1)  # roster
+                ws_send(ws1, type="set_mode", game_mode="king_of_the_hill")
+                m1 = ws_recv(ws1)
+                m2 = ws_recv(ws2)
+                assert m1["type"] == "mode_updated"
+                assert m2["type"] == "mode_updated"
+                assert m1["game_mode"] == "king_of_the_hill"
+                assert m2["game_mode"] == "king_of_the_hill"
+
+    def test_non_host_set_mode_rejected(self, client):
+        with connected_ws(client) as ws1:
+            ws_send(ws1, type="create_room", player_name="alice", room_name="NM", required_players=2)
+            joined = ws_recv(ws1)
+            ws_recv(ws1)  # roster
+            rid = joined["room_id"]
+            with connected_ws(client) as ws2:
+                ws_send(ws2, type="join_room", player_name="bob", room_id=rid)
+                ws_recv(ws2)  # joined
+                ws_recv(ws2)  # roster
+                ws_recv(ws1)  # roster
+                ws_send(ws2, type="set_mode", game_mode="free_for_all")
+                err = ws_recv(ws2)
+                assert err["type"] == "error"
 
     def test_host_set_board_in_lobby_broadcasts(self, client):
         with connected_ws(client) as ws1:

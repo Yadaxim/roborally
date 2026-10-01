@@ -26,6 +26,7 @@ class Room:
         room_name: str = "",
         host_id: str = "",
         required_players: int = 2,
+        game_mode: str = "standard",
     ) -> None:
         self.room_id = room_id
         self.room_name = room_name or room_id
@@ -36,6 +37,7 @@ class Room:
         self.engine = GameEngine(board)
         self.ready: dict[str, bool] = {}
         self.paused: bool = False
+        self.game_mode: str = game_mode
 
     def join(self, player_id: str) -> None:
         if player_id in self.engine.robots:
@@ -95,6 +97,7 @@ class Room:
             "in_progress": self.engine.phase != GamePhase.LOBBY,
             "board_id": self.board_id,
             "board_name": self.board_dict.get("name", self.board_id),
+            "game_mode": self.game_mode,
         }
 
     def replace_lobby_board(self, board: Board, board_id: str, board_dict: dict[str, Any]) -> None:

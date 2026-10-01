@@ -1,8 +1,9 @@
 import { create } from 'zustand'
-import type { Card, Phase, Robot, ActivationEvent, PendingRegister, RoomSummary, LobbyPlayer, BoardData } from '../types/game'
+import type { Card, Phase, Robot, ActivationEvent, PendingRegister, RoomSummary, LobbyPlayer, BoardData, GameMode } from '../types/game'
 import { nextDamageFlashUntil, pruneExpiredFlashes } from '../utils/damageFlash'
 import { nextDestroySinkUntil, pruneExpiredDestroySinks } from '../utils/destroySink'
 import { mergeRespawnPopStarts } from '../utils/respawnPop'
+import { asGameMode } from '../utils/gameModes'
 
 /** Must match backend `PROGRAMMING_TIMEOUT` (seconds). */
 export const PROGRAMMING_TIMEOUT_SEC = 30
@@ -22,6 +23,8 @@ interface GameState {
   /** Selected map in lobby (host can change before start). */
   lobbyBoardId: string
   lobbyBoardName: string
+  /** Game mode for this room (host can change in lobby); engine is standard race until modes are implemented. */
+  lobbyGameMode: GameMode
   /** Authoritative board from server once a match begins. */
   activeBoard: BoardData | null
 
@@ -70,11 +73,13 @@ interface GameState {
     requiredPlayers: number,
     lobbyBoardId?: string,
     lobbyBoardName?: string,
+    lobbyGameMode?: string,
   ) => void
   setRooms: (rooms: RoomSummary[]) => void
   setLobbyPlayers: (players: LobbyPlayer[]) => void
   updateLobbyPlayerReady: (playerId: string, isReady: boolean) => void
   setLobbyBoard: (boardId: string, boardName: string) => void
+  setLobbyGameMode: (mode: GameMode) => void
   setActiveBoard: (board: BoardData | null) => void
   setPhase: (phase: Phase) => void
   setRobots: (robots: Robot[]) => void
@@ -132,7 +137,7 @@ function buildRegistersFromLocked(lockedCards: Record<number, Card>): (Card | nu
 const INITIAL: Pick<
   GameState,
   | 'connected' | 'playerId' | 'roomId'
-  | 'rooms' | 'lobbyPlayers' | 'isHost' | 'roomName' | 'requiredPlayers' | 'lobbyBoardId' | 'lobbyBoardName' | 'activeBoard'
+  | 'rooms' | 'lobbyPlayers' | 'isHost' | 'roomName' | 'requiredPlayers' | 'lobbyBoardId' | 'lobbyBoardName' | 'lobbyGameMode' | 'activeBoard'
   | 'phase' | 'robots' | 'hand' | 'registers' | 'lockedCards'
   | 'lastEvents' | 'roundEvents' | 'showRoundResult' | 'winner' | 'dealTime'
   | 'gamePaused' | 'programmingSecondsRemaining' | 'pendingRegisters' | 'playbackHighlight'
@@ -148,6 +153,7 @@ const INITIAL: Pick<
   requiredPlayers: 2,
   lobbyBoardId: 'dizzy_highway',
   lobbyBoardName: '',
+  lobbyGameMode: 'standard',
   activeBoard: null,
   phase: 'lobby',
   robots: [],
@@ -174,7 +180,7 @@ export const useGameStore = create<GameState>((set) => ({
   ...INITIAL,
 
   setConnected: (connected) => set({ connected }),
-  setJoined: (playerId, roomId, roomName, isHost, requiredPlayers, lobbyBoardId, lobbyBoardName) =>
+  setJoined: (playerId, roomId, roomName, isHost, requiredPlayers, lobbyBoardId, lobbyBoardName, lobbyGameMode) =>
     set({
       playerId,
       roomId,
@@ -183,8 +189,10 @@ export const useGameStore = create<GameState>((set) => ({
       requiredPlayers,
       lobbyBoardId: lobbyBoardId ?? 'dizzy_highway',
       lobbyBoardName: lobbyBoardName ?? '',
+      lobbyGameMode: asGameMode(lobbyGameMode),
     }),
   setLobbyBoard: (lobbyBoardId, lobbyBoardName) => set({ lobbyBoardId, lobbyBoardName }),
+  setLobbyGameMode: (lobbyGameMode) => set({ lobbyGameMode }),
   setActiveBoard: (activeBoard) => set({ activeBoard }),
   setRooms: (rooms) => set({ rooms }),
   setLobbyPlayers: (lobbyPlayers) => set({ lobbyPlayers }),

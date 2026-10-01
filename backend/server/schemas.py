@@ -4,6 +4,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+GameMode = Literal[
+    "standard",
+    "king_of_the_hill",
+    "capture_the_flag",
+    "demolition_derby",
+    "free_for_all",
+]
+
 from game.activation import ActivationEvent
 from game.board import Direction
 from game.cards import Card, CardType
@@ -73,6 +81,7 @@ class RoomSummary(BaseModel):
     in_progress: bool
     board_id: str = "dizzy_highway"
     board_name: str = ""
+    game_mode: GameMode = "standard"
 
 
 class MsgRoomList(BaseModel):
@@ -109,6 +118,7 @@ class MsgJoined(BaseModel):
     required_players: int = 2
     board_id: str = "dizzy_highway"
     board_name: str = ""
+    game_mode: GameMode = "standard"
 
 
 class MsgGameStarted(BaseModel):
@@ -173,6 +183,11 @@ class MsgBoardUpdated(BaseModel):
     board_name: str
 
 
+class MsgModeUpdated(BaseModel):
+    type: Literal["mode_updated"] = "mode_updated"
+    game_mode: GameMode
+
+
 class MsgGamePaused(BaseModel):
     type: Literal["game_paused"] = "game_paused"
     paused: bool
@@ -198,11 +213,17 @@ class CmdCreateRoom(BaseModel):
     room_name: str
     required_players: int = Field(default=2, ge=1, le=4)
     board_id: str = "dizzy_highway"
+    game_mode: GameMode = "standard"
 
 
 class CmdSetBoard(BaseModel):
     type: Literal["set_board"] = "set_board"
     board_id: str
+
+
+class CmdSetMode(BaseModel):
+    type: Literal["set_mode"] = "set_mode"
+    game_mode: GameMode
 
 
 class CmdJoinRoom(BaseModel):

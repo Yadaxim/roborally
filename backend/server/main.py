@@ -26,6 +26,7 @@ from server.schemas import (
     CmdJoinRoom,
     CmdReady,
     CmdSetBoard,
+    CmdSetMode,
     CmdSetPaused,
     CmdSubmitRegisters,
     EventOut,
@@ -43,6 +44,7 @@ from server.schemas import (
     MsgRoomList,
     MsgRosterUpdate,
     MsgBoardUpdated,
+    MsgModeUpdated,
     MsgStateSync,
     PlayerInRoomOut,
     RobotOut,
@@ -467,6 +469,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 required_players=room.required_players,
                 board_id=room.board_id,
                 board_name=str(room.board_dict.get("name", room.board_id)),
+                game_mode=room.game_mode,  # type: ignore[arg-type]
             ))
             if is_reconnect:
                 await _send_state_sync(ws, room, player_id)
@@ -488,6 +491,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 room_id, board, cmd.board_id, bd,
                 room_name=cmd.room_name,
                 required_players=cmd.required_players,
+                game_mode=cmd.game_mode,
             )
             _connections[room_id] = {}
             _rooms[room_id].join(player_id)
@@ -502,6 +506,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 required_players=cmd.required_players,
                 board_id=room.board_id,
                 board_name=str(room.board_dict.get("name", room.board_id)),
+                game_mode=room.game_mode,  # type: ignore[arg-type]
             ))
             await _broadcast_roster(room_id)
             await _broadcast_room_list_to_browsers()
@@ -532,6 +537,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 required_players=room.required_players,
                 board_id=room.board_id,
                 board_name=str(room.board_dict.get("name", room.board_id)),
+                game_mode=room.game_mode,  # type: ignore[arg-type]
             ))
             if is_reconnect:
                 await _send_state_sync(ws, room, player_id)
@@ -607,6 +613,18 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     board_name=str(room.board_dict.get("name", room.board_id)),
                 ))
                 await _broadcast_roster(room_id)
+                await _broadcast_room_list_to_browsers()
+
+            elif msg_type == "set_mode":
+                cmd_m = CmdSetMode(**data)
+                if player_id != room.host_id:
+                    await _send(ws, MsgError(message="Only the host can change the game mode"))
+                    continue
+                if room.engine.phase != GamePhase.LOBBY:
+                    await _send(ws, MsgError(message="Can only change mode before the game starts"))
+                    continue
+                room.game_mode = cmd_m.game_mode
+                await _broadcast(room_id, MsgModeUpdated(game_mode=cmd_m.game_mode))
                 await _broadcast_room_list_to_browsers()
 
             elif msg_type == "submit_registers":

@@ -42,6 +42,7 @@ function processServerMessage(msg: ServerMessage): void {
         msg.required_players,
         msg.board_id,
         msg.board_name,
+        msg.game_mode,
       )
       break
     case 'roster_update':
@@ -93,6 +94,9 @@ function processServerMessage(msg: ServerMessage): void {
       break
     case 'board_updated':
       store.setLobbyBoard(msg.board_id, msg.board_name)
+      break
+    case 'mode_updated':
+      store.setLobbyGameMode(msg.game_mode)
       break
     case 'register_events':
       store.enqueueRegister(msg)

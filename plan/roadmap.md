@@ -95,8 +95,8 @@ Status legend: ⬜ not started · 🔄 in progress · ✅ done
 
 - ✅ Damage animation (robot body/head tint + emissive pulse during damage activation events)
 - ✅ Destroy / reboot animation (robot sinks, reappears at archive) — `beginDestroySink` + `DESTROY_SINK_MS` in sequencer; `respawnPopStart` / `RESPAWN_POP_MS` on dead→alive sync; `Robot3D` sink + pop in `useFrame`
-- ⬜ Conveyor belt scroll animation
-- ⬜ Gear rotation animation
+- ✅ Conveyor belt scroll animation — direction arrow oscillates along belt during `conveyors_express` / `conveyors_normal` playback (`Tile3D` + `isConveyorActivationSubstep`)
+- ✅ Gear rotation animation — hex disc + peg markers spin on Y during `gears` substep (`Tile3D` + `isGearsActivationSubstep`)
 - ✅ Additional boards — Cannery Row, Exchange, Pit Maze, Maelstrom (`backend/data/boards/*.json`)
 - ✅ Map selection in lobby — host chooses board; `GET /boards` manifest; `set_board` WebSocket; create-room `board_id`; room list shows map name
 - ⬜ Game mode selection in lobby — host selects Standard / King of the Hill / Capture the Flag / Demolition Derby / Free for All; `ModeSelector` UI; `set_mode` WebSocket message

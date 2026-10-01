@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useGameStore } from './store/gameStore'
 import { proposePlayerName, proposeRoomName } from './utils/proposedNames'
+import { gameModeLabel } from './utils/gameModes'
+import ModeSelector from './components/ui/ModeSelector'
 import { connect, send, disconnect } from './ws/client'
-import type { ClientMessage } from './types/game'
+import type { ClientMessage, GameMode } from './types/game'
 import { useAnimationSequencer } from './hooks/useAnimationSequencer'
 import Scene from './components/game/Scene'
 import ProgrammingPanel from './components/ui/ProgrammingPanel'
@@ -14,12 +16,13 @@ import './index.css'
 const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#e9c46a', '#f4a261']
 
 export default function App() {
-  const { phase, connected, playerId, roomId, roomName, isHost, requiredPlayers, rooms, lobbyPlayers, robots, winner, gamePaused, lobbyBoardId, lobbyBoardName } =
+  const { phase, connected, playerId, roomId, roomName, isHost, requiredPlayers, rooms, lobbyPlayers, robots, winner, gamePaused, lobbyBoardId, lobbyBoardName, lobbyGameMode } =
     useGameStore()
   const [playerName, setPlayerName] = useState(() => proposePlayerName())
   const [createRoomName, setCreateRoomName] = useState('')
   const [createRequired, setCreateRequired] = useState(2)
   const [createBoardId, setCreateBoardId] = useState('dizzy_highway')
+  const [createGameMode, setCreateGameMode] = useState<GameMode>('standard')
   const [availableBoards, setAvailableBoards] = useState<{ id: string; name: string }[]>([])
   useAnimationSequencer()
 
@@ -69,6 +72,7 @@ export default function App() {
       room_name: createRoomName.trim(),
       required_players: createRequired,
       board_id: createBoardId,
+      game_mode: createGameMode,
     })
     setCreateRoomName('')
   }
@@ -87,6 +91,10 @@ export default function App() {
 
   function handleSetLobbyBoard(boardId: string) {
     send({ type: 'set_board', board_id: boardId })
+  }
+
+  function handleSetLobbyGameMode(mode: GameMode) {
+    send({ type: 'set_mode', game_mode: mode })
   }
 
   function handleTogglePause() {
@@ -193,6 +201,7 @@ export default function App() {
                     {r.board_name ? (
                       <span className="block text-gray-500 text-xs mt-0.5">Map: {r.board_name}</span>
                     ) : null}
+                    <span className="block text-gray-500 text-xs mt-0.5">Mode: {gameModeLabel(r.game_mode ?? 'standard')}</span>
                   </div>
                   <button
                     className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded px-3 py-1"
@@ -233,6 +242,10 @@ export default function App() {
             ))}
           </div>
           <div className="flex flex-col gap-1">
+            <span className="text-gray-400 text-sm">Game mode</span>
+            <ModeSelector value={createGameMode} onChange={setCreateGameMode} />
+          </div>
+          <div className="flex flex-col gap-1">
             <span className="text-gray-400 text-sm">Factory map</span>
             <select
               className="bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
@@ -271,6 +284,19 @@ export default function App() {
         <div className="text-center">
           <p className="text-xl font-bold">{roomName || roomId}</p>
           <p className="text-gray-500 text-xs mt-0.5">Room ID: {roomId}</p>
+        </div>
+
+        <div className="w-full max-w-sm">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-gray-400 uppercase tracking-wide font-semibold">Game mode</span>
+            {isHost ? (
+              <ModeSelector value={lobbyGameMode} onChange={handleSetLobbyGameMode} />
+            ) : (
+              <p className="text-gray-200 rounded border border-gray-700 bg-gray-800/60 px-3 py-2">
+                {gameModeLabel(lobbyGameMode)}
+              </p>
+            )}
+          </label>
         </div>
 
         <div className="w-full max-w-sm">

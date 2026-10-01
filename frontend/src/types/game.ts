@@ -38,6 +38,13 @@ export interface Card {
 export type Direction = 'north' | 'south' | 'east' | 'west'
 export type Phase = 'lobby' | 'programming' | 'activation' | 'game_over'
 
+export type GameMode =
+  | 'standard'
+  | 'king_of_the_hill'
+  | 'capture_the_flag'
+  | 'demolition_derby'
+  | 'free_for_all'
+
 export interface Robot {
   id: string
   x: number
@@ -80,6 +87,7 @@ export interface RoomSummary {
   in_progress: boolean
   board_id: string
   board_name: string
+  game_mode: GameMode
 }
 
 export interface LobbyPlayer {
@@ -91,7 +99,17 @@ export interface LobbyPlayer {
 // Server → Client messages
 export type ServerMessage =
   | { type: 'room_list'; rooms: RoomSummary[] }
-  | { type: 'joined'; player_id: string; room_id: string; room_name: string; is_host: boolean; required_players: number; board_id: string; board_name: string }
+  | {
+      type: 'joined'
+      player_id: string
+      room_id: string
+      room_name: string
+      is_host: boolean
+      required_players: number
+      board_id: string
+      board_name: string
+      game_mode: GameMode
+    }
   | { type: 'roster_update'; players: LobbyPlayer[] }
   | { type: 'player_ready'; player_id: string; is_ready: boolean }
   | { type: 'game_started'; robots: Robot[]; board: BoardData }
@@ -111,17 +129,26 @@ export type ServerMessage =
       robots: Robot[]
     }
   | { type: 'board_updated'; board_id: string; board_name: string }
+  | { type: 'mode_updated'; game_mode: GameMode }
   | { type: 'game_over'; winner: string | null }
   | { type: 'error'; message: string }
 
 // Client → Server messages
 export type ClientMessage =
   | { type: 'join'; room_id: string; player_id: string }
-  | { type: 'create_room'; player_name: string; room_name: string; required_players: number; board_id?: string }
+  | {
+      type: 'create_room'
+      player_name: string
+      room_name: string
+      required_players: number
+      board_id?: string
+      game_mode?: GameMode
+    }
   | { type: 'join_room'; player_name: string; room_id: string }
   | { type: 'ready'; value: boolean }
   | { type: 'force_start' }
   | { type: 'start' }
   | { type: 'submit_registers'; cards: Card[] }
   | { type: 'set_board'; board_id: string }
+  | { type: 'set_mode'; game_mode: GameMode }
   | { type: 'set_paused'; value: boolean }

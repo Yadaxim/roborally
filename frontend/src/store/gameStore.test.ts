@@ -22,6 +22,12 @@ describe('setJoined', () => {
     const s = useGameStore.getState()
     expect(s.playerId).toBe('alice')
     expect(s.roomId).toBe('room1')
+    expect(s.lobbyGameMode).toBe('standard')
+  })
+
+  it('stores lobby game mode from joined payload', () => {
+    useGameStore.getState().setJoined('bob', 'r2', 'N', true, 2, 'dizzy_highway', 'Dizzy', 'capture_the_flag')
+    expect(useGameStore.getState().lobbyGameMode).toBe('capture_the_flag')
   })
 })
 
